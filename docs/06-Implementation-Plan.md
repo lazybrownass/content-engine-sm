@@ -1,0 +1,379 @@
+## Implementation Plan — LinkedIn Content Engine
+
+Version 1.0 · Phased build order, folder structure, standards, CI/CD, testing
+
+---
+
+### 1. Folder Structure
+
+```
+.
+├── app/
+│   ├── (auth)/
+│   │   ├── login/page.tsx
+│   │   └── forbidden/page.tsx
+│   ├── (app)/                        # authenticated shell, layout enforces owner check
+│   │   ├── layout.tsx
+│   │   ├── dashboard/page.tsx
+│   │   ├── knowledge/
+│   │   │   ├── page.tsx
+│   │   │   ├── new/page.tsx
+│   │   │   └── [id]/page.tsx
+│   │   ├── topics/
+│   │   │   ├── page.tsx
+│   │   │   └── generate/page.tsx
+│   │   ├── posts/
+│   │   │   ├── page.tsx
+│   │   │   └── [id]/
+│   │   │       ├── page.tsx
+│   │   │       └── edit/page.tsx
+│   │   ├── schedule/page.tsx
+│   │   ├── analytics/page.tsx
+│   │   └── settings/
+│   │       ├── business-context/page.tsx
+│   │       ├── style-memory/page.tsx
+│   │       ├── models/page.tsx
+│   │       └── publishing/page.tsx
+│   ├── api/
+│   │   ├── pipeline-runs/[id]/
+│   │   │   ├── status/route.ts
+│   │   │   └── tick/route.ts
+│   │   ├── webhooks/
+│   │   │   ├── n8n/route.ts
+│   │   │   ├── make/route.ts
+│   │   │   └── playwright/route.ts
+│   │   └── cron/
+│   │       ├── dispatch-publishing/route.ts
+│   │       └── refresh-style-memory/route.ts
+│   ├── layout.tsx
+│   └── globals.css
+│
+├── features/                          # feature-based organization (see §5)
+│   ├── knowledge/
+│   │   ├── components/
+│   │   ├── actions.ts                # Server Actions
+│   │   ├── queries.ts                # read-only data access
+│   │   └── schema.ts                 # Zod schemas
+│   ├── topics/
+│   ├── posts/
+│   ├── pipeline/
+│   │   ├── stages/                   # one file per pipeline stage
+│   │   │   ├── knowledge-retrieval.ts
+│   │   │   ├── business-context-merge.ts
+│   │   │   ├── ...
+│   │   │   └── cta-generation.ts
+│   │   ├── orchestrator.ts
+│   │   └── types.ts
+│   ├── publishing/
+│   │   ├── providers/
+│   │   │   ├── n8n.provider.ts
+│   │   │   ├── make.provider.ts
+│   │   │   ├── playwright.provider.ts
+│   │   │   ├── manual.provider.ts
+│   │   │   └── provider.interface.ts
+│   │   └── actions.ts
+│   ├── analytics/
+│   ├── style-memory/
+│   └── settings/
+│
+├── lib/
+│   ├── ai/
+│   │   ├── model-router.ts           # single entry point for all model calls
+│   │   ├── providers/
+│   │   │   ├── huggingface.ts
+│   │   │   └── secondary.ts
+│   │   ├── embeddings.ts
+│   │   └── rerank.ts
+│   ├── db/
+│   │   └── prisma.ts
+│   ├── auth/
+│   │   └── session.ts
+│   ├── validation/                   # shared Zod schemas
+│   └── utils/
+│
+├── components/
+│   ├── ui/                           # shadcn/ui primitives (owned copies)
+│   └── shared/                       # cross-feature composed components
+│
+├── prisma/
+│   ├── schema.prisma
+│   ├── migrations/
+│   └── seed.ts
+│
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── e2e/
+│   └── a11y/
+│
+├── ai/
+│   ├── AGENTS.md
+│   ├── CLAUDE.md
+│   └── MASTER_PROMPT.md
+│
+├── docs/                             # this documentation set
+├── .github/workflows/
+├── middleware.ts
+├── next.config.ts
+└── package.json
+```
+
+**Naming conventions:** files `kebab-case`, React components `PascalCase` exported from a `kebab-case.tsx` file matching the component name, Server Actions suffixed `actions.ts` per feature, Zod schemas suffixed `schema.ts`, one pipeline stage per file under `features/pipeline/stages/` named identically to its `PipelineStage` enum value (lowercased, kebab-case) so the orchestrator can resolve a stage module by convention rather than a manual switch statement.
+
+### 2. Why Feature-Based Organization
+
+Rejected alternative: strict MVC-style folders (`controllers/`, `models/`, `views/`). Feature folders (`features/posts/*`) keep everything needed to understand "how posts work" in one place, which matters more for a solo-maintained, AI-agent-edited codebase than following a framework convention — when Claude Code is asked to "add a field to posts," the blast radius is one folder, not four.
+
+`lib/` holds genuinely cross-feature infrastructure (the model router, the Prisma client singleton, auth helpers) — nothing feature-specific belongs there.
+
+### 3. Coding Standards
+
+- **TypeScript strict mode**, `noUncheckedIndexedAccess: true`, no `any` without an inline comment justifying it (and preferring `unknown` + narrowing instead).
+- **ESLint** (`next/core-web-vitals` + `@typescript-eslint/recommended-requiring-type-checking`) and **Prettier** run on every commit via a pre-commit hook (`simple-git-hooks` or `husky` — prefer `simple-git-hooks`, zero extra runtime dependency).
+- **Import ordering:** enforced via `eslint-plugin-import` — node builtins → external packages → internal `@/lib`, `@/features`, `@/components` aliases → relative imports, blank line between groups.
+- **Error handling:** Server Actions never throw raw errors to the client; they return a discriminated union `{ success: true, data } | { success: false, error: { code, message } }` so the UI can render specific, non-generic error states (per 03-App-Flow.md §11). Unexpected exceptions are caught at the action boundary, logged, and converted to a generic `INTERNAL_ERROR` code — the raw stack trace never reaches the client.
+- **Logging:** structured JSON logs (`pino` — lightweight, fast, works in Next.js server contexts) for all Server Actions, Route Handlers, and pipeline stage executions; every log line includes `ownerId`, and where applicable `postId`/`pipelineRunId`/`stage`, so any issue is traceable end-to-end.
+- **Comments:** explain *why*, not *what* — code should be legible without comments describing control flow; comments are reserved for non-obvious tradeoffs (e.g., why a specific model was chosen inline where it deviates from the TRD default, why a raw SQL query bypasses Prisma).
+- **Architecture rules (SOLID applied pragmatically, not dogmatically):**
+  - Single Responsibility: one pipeline stage = one file = one job.
+  - Open/Closed: the `PublishingProvider` and `ModelRouter` interfaces exist specifically so new providers/models are additive, not modifications to existing code.
+  - Dependency Inversion: feature code depends on the `provider.interface.ts` contract, never on a concrete provider (`n8n.provider.ts`) directly — the orchestrator resolves the concrete implementation from `automation_providers` config at runtime.
+  - No dogmatic layering for its own sake — a single-owner internal tool does not need a repository-pattern abstraction over Prisma; Prisma itself is the data-access abstraction. Avoid adding indirection that doesn't pay for itself.
+
+### 4. Phased Build Plan
+
+Each phase is small enough to ship and verify independently. Commit after every completed task within a phase (Conventional Commits, see §7); do not batch unrelated changes into one commit.
+
+#### Phase 0 — Project Bootstrap
+
+**Objectives:** working Next.js 16 project, connected to Supabase, deployable to Vercel, with auth gating in place before any feature work starts.
+
+| Task | Deliverable |
+|---|---|
+| Initialize Next.js 16 (App Router, TS, Tailwind v4, ESLint) via `create-next-app` | Repo scaffold |
+| Add shadcn/ui, configure `components.json`, install base primitives (Button, Input, Card, Dialog, Toast/Sonner, Command) | `components/ui/*` |
+| Set up Supabase project, enable `pgvector`, configure Auth providers (GitHub, Google, Email) | Supabase project config documented in `README.md` |
+| Add Prisma, write initial `schema.prisma` (Users + Settings only), run first migration | `prisma/migrations/0001_init` |
+| Implement middleware: session check + owner allow-list redirect | `middleware.ts` |
+| Deploy to Vercel, verify preview + production deploy pipeline | Live URL, documented in `README.md` |
+
+**Acceptance criteria:** a real GitHub/Google login succeeds, non-owner emails are redirected to `/forbidden`, owner reaches an empty `/dashboard`.
+**Testing:** manual auth flow smoke test; one Playwright E2E test covering login → dashboard → logout.
+**Risks:** Supabase Auth provider misconfiguration (redirect URLs) — mitigate by testing both preview and production redirect URLs explicitly before moving on.
+**Definition of Done:** deployed, authenticated shell live; no feature tables yet.
+
+#### Phase 1 — Knowledge Base
+
+**Objectives:** full knowledge CRUD + embeddings + search, since every downstream feature depends on it.
+
+| Task | Deliverable |
+|---|---|
+| Full `schema.prisma` for knowledge tables + migration incl. pgvector index, FTS index | `prisma/migrations/0002_knowledge` |
+| `features/knowledge/schema.ts` Zod schemas per category | Validation layer |
+| Knowledge list/detail/new pages (Server Components) + Server Actions (create/update/archive) | `/knowledge/*` |
+| `lib/ai/embeddings.ts` — embedding generation via HF Inference Providers (BAAI/bge-base-en-v1.5), async on create/update | Embedding pipeline |
+| Hybrid search (`lib/knowledge/search.ts`): keyword FTS + vector similarity + cross-encoder rerank | Search function + `/knowledge?q=` UI |
+| Bulk import (paste/markdown/CSV) with per-row validation and partial success | Import UI + action |
+
+**Acceptance criteria:** creating a knowledge item makes it findable via both keyword and semantic search within a few seconds; a malformed bulk-import row does not block the valid rows in the same batch.
+**Testing:** unit tests for Zod schemas and chunking logic; integration test hitting a real (or mocked) embedding call and asserting a similarity search returns the expected item.
+**Risks:** embedding provider rate limits during bulk import — mitigate with a queued, throttled embedding job rather than firing N parallel calls.
+**Definition of Done:** owner can backfill 40+ real knowledge items (PRD success metric) through this UI.
+
+#### Phase 2 — AI Pipeline Core
+
+**Objectives:** the 12-stage generation pipeline running end-to-end for a single manually-seeded topic, with full observability.
+
+| Task | Deliverable |
+|---|---|
+| `lib/ai/model-router.ts` + HF provider adapter + secondary fallback provider | Model routing layer |
+| `prompt_templates` seed data for all 12 stages | `prisma/seed.ts` |
+| One module per stage under `features/pipeline/stages/*`, each with typed input/output per 02-TRD.md §4 | Stage implementations |
+| `pipeline_runs` + `ai_runs` tables, orchestrator that advances one stage per `tick` | `features/pipeline/orchestrator.ts`, `/api/pipeline-runs/[id]/tick` |
+| Vercel Cron wired to tick in-progress runs every minute | `vercel.json` cron config |
+| Pipeline Stage Viewer component (04-UI-UX-Design-Brief.md §8) | `/posts/[id]` stage UI |
+| Retry/backoff + fallback provider wiring per 02-TRD.md §5.6 | Resilience logic |
+
+**Acceptance criteria:** a manually created `Topic` row, when accepted, produces a fully drafted, humanized, grammar-checked post with a CTA — without manual intervention — and every stage's output is inspectable in the UI.
+**Testing:** integration test per stage (given a fixed input, mock the model call, assert output shape); one full end-to-end pipeline test with all model calls mocked to deterministic fixtures (real model output is non-deterministic and unsuitable for CI assertions — see §6).
+**Risks:** a stage silently producing malformed structured output (LLMs are not perfectly reliable at strict JSON) — mitigate with Zod validation on every stage output and automatic single retry with a stricter "return valid JSON only" instruction on validation failure.
+**Definition of Done:** pipeline runs are resumable after a server restart (state lives in Postgres, not memory) and every failure mode surfaces a specific, actionable error in the UI.
+
+#### Phase 3 — Topic Generation + Editor
+
+**Objectives:** close the loop from knowledge → topic suggestion → owner decision → editor.
+
+| Task | Deliverable |
+|---|---|
+| Topic generation flow (`/topics/generate`) invoking Knowledge Retrieval → Content Opportunity Scoring as a `pipeline_run` with `purpose = topic_generation` | Topic suggestion UI |
+| Accept/reject/edit topic actions, 90-day suppression on reject | `features/topics/actions.ts` |
+| Rich-text editor (client island) with inline AI actions (rewrite selection, shorten, change hook) as scoped model calls | `/posts/[id]/edit` |
+| Repeated-phrase check against `recent_post_phrases` materialized view | Editor warning banner |
+| Approve / approve-with-edit-diff / reject flow, writing to `feedback` | Approval gate |
+
+**Acceptance criteria:** owner can go from "click Generate" to an approved, edited post in under 10 minutes of active time (PRD success metric), with every intermediate decision (accept topic, edit outline, approve) explicit and visible.
+**Testing:** E2E test covering the full happy path; unit tests for repeated-phrase similarity scoring.
+**Risks:** inline AI actions feel slow if each round-trips the full model stack — mitigate by routing inline actions to the fast Qwen3-8B tier, not the heavier Writing-stage model.
+**Definition of Done:** a real topic, generated from real knowledge, becomes a real approved post through this UI.
+
+#### Phase 4 — Scheduling + Publishing Adapters
+
+**Objectives:** provider-agnostic publishing, starting with Manual (guaranteed to work) and one automation provider.
+
+| Task | Deliverable |
+|---|---|
+| `Schedule` + `PublishingJob` + `AutomationProvider` CRUD | `/schedule`, `/settings/publishing` |
+| `PublishingProvider` interface + `manual.provider.ts` | Manual provider (always available) |
+| `n8n.provider.ts` (webhook dispatch + signed callback receiver) | n8n integration |
+| `make.provider.ts` | Make integration |
+| Cron job dispatching due `publishing_jobs` | `/api/cron/dispatch-publishing` |
+| `publish_unconfirmed` timeout handling + owner confirmation UI | Recovery flow per 03-App-Flow.md §8 |
+
+**Acceptance criteria:** scheduling a post with the Manual provider produces a correctly timed reminder and a working copy-to-clipboard flow with zero external dependencies; the n8n provider successfully round-trips a real test payload.
+**Testing:** integration tests mocking webhook responses (success, timeout, non-2xx); manual verification of one real n8n publish before considering this phase done.
+**Risks:** webhook callback never arrives (network/config issue on the n8n side) — mitigated by the `publish_unconfirmed` state, never a false `published`.
+**Definition of Done:** owner has published at least one real post through this system end-to-end.
+
+#### Phase 5 — Analytics + Learning Loop
+
+**Objectives:** close the feedback loop so the system measurably improves.
+
+| Task | Deliverable |
+|---|---|
+| Manual analytics entry form + `AnalyticsSnapshot` writes | `/analytics` entry UI |
+| `post_performance_rollup` view + dashboard charts (Recharts) | Analytics dashboards |
+| Style memory computation job (sentence length, emoji rate, hook/CTA pattern frequency, repeated phrase index) | `/api/cron/refresh-style-memory` |
+| Topic scoring weight adjustment based on historical pillar/hook performance | Scoring heuristic update in Content Opportunity Scoring stage |
+| Playwright analytics adapter (optional, documented as enhancement not launch blocker per PRD §15) | `playwright.provider.ts` analytics mode |
+
+**Acceptance criteria:** style memory profile visibly updates after 5+ published posts with entered metrics; topic scoring measurably favors historically higher-performing pillars/hooks.
+**Testing:** unit tests for the style computation aggregation logic against fixture post data.
+**Risks:** too little data early on makes the learning loop noisy — mitigate by requiring a minimum sample size (documented threshold, e.g. 10 posts) before scoring weights deviate meaningfully from baseline.
+**Definition of Done:** the learning loop is demonstrably influencing new topic suggestions, not just displaying historical charts.
+
+#### Phase 6 — Hardening
+
+**Objectives:** security review, accessibility audit, performance pass, polish before calling v1 "done."
+
+| Task | Deliverable |
+|---|---|
+| Full accessibility pass against 04-UI-UX-Design-Brief.md §10 | Axe/Playwright a11y test suite green |
+| Lighthouse audit on all primary routes, fix regressions to hit ≥95 | Performance report |
+| Security review: RLS policy audit, secret handling audit, CSP header verification | Security checklist signed off |
+| Data export (knowledge base + posts as JSON/Markdown) | `/settings` export action |
+| Documentation pass: README, `.env.example`, runbook for common failures (pipeline stuck, publishing failed) | `README.md`, `RUNBOOK.md` |
+
+**Acceptance criteria:** all NFRs in 01-PRD.md §10 are met and verifiable.
+**Definition of Done:** v1 ships.
+
+### 5. CI/CD
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx prisma migrate deploy
+        env: { DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres" }
+      - run: npm run test:unit
+      - run: npm run test:integration
+        env: { DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres" }
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm audit --audit-level=high
+      - uses: aquasecurity/trivy-action@master
+        with: { scan-type: fs, severity: HIGH,CRITICAL }
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+```
+
+Deployment itself is handled by Vercel's native GitHub integration (preview deployment per PR, production deployment on merge to `main`) — no separate deploy job is needed in GitHub Actions; CI's job is to gate the merge, not to ship the artifact.
+
+A separate scheduled workflow (`.github/workflows/dependency-updates.yml`) runs Dependabot (or Renovate) weekly for dependency version PRs, reviewed manually before merge given the solo-maintainer context.
+
+### 6. Testing Strategy
+
+| Layer | Tool | Scope |
+|---|---|---|
+| Unit | Vitest | Pure functions: Zod schemas, style-memory aggregation math, repeated-phrase similarity scoring, prompt template variable interpolation |
+| Integration | Vitest + a real Postgres test instance (pgvector image, per CI config above) | Server Actions against the database, hybrid search correctness, RLS policy behavior (verify a non-owner query returns zero rows) |
+| E2E | Playwright | Full user journeys from 03-App-Flow.md: auth, knowledge CRUD, topic generation → approval → schedule, publishing provider dispatch (mocked webhook target) |
+| Accessibility | `@axe-core/playwright` integrated into the E2E suite | Every primary route asserted against WCAG AA violations |
+| Performance | Lighthouse CI (`@lhci/cli`) in a separate, non-blocking workflow reporting on PRs | Regression visibility on Lighthouse score, not a hard CI gate (avoids flaky failures blocking merges) |
+| AI output validation | Structural, not semantic — assert every stage's raw model output parses against its Zod contract; semantic quality is evaluated by the Quality Review stage itself and by owner feedback, not by CI | Every stage module has a test with a mocked model response validating the parsing/error-handling path, including a malformed-JSON case |
+| Regression | E2E suite re-run on every PR to `main`; no separate regression suite given the small surface area | — |
+| Load | Explicitly out of scope for v1 — single-user tool, load testing effort is disproportionate to risk (documented decision, revisit only if usage pattern changes) | — |
+
+Model calls are always mocked in CI — real inference is non-deterministic, would make tests flaky, and would consume free-tier quota on every CI run. A small, separate manual/local-only script (`scripts/pipeline-smoke-test.ts`) exists for periodically verifying real model integration still works, run on demand, not in CI.
+
+### 7. Git Workflow & Commit Discipline
+
+- **Branch strategy:** trunk-based with short-lived feature branches (`feat/knowledge-search`, `fix/publishing-timeout`), merged to `main` via PR even when working solo with an AI agent — this preserves Vercel preview deployments and a reviewable diff history.
+- **Conventional Commits**, enforced by commitlint in a pre-commit/pre-push hook: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`, `ci:`. Scope where useful: `feat(pipeline): add quality review retry logic`.
+- **Commit after every completed task**, not after every file save — a commit should represent one coherent, working change.
+- **No AI attribution of any kind** in commit messages: no `Co-authored-by: Claude`, no "Generated with Claude Code," no contributor metadata referencing the AI agent. Commits read exactly as if written by the human owner.
+- **Automatic push** after a clean commit is acceptable once local lint/typecheck/unit tests pass; CI is the final gate before merge, not a replacement for local verification.
+
+### 8. Estimated Effort (solo developer + AI agent pairing)
+
+| Phase | Estimate |
+|---|---|
+| 0 — Bootstrap | 0.5–1 day |
+| 1 — Knowledge Base | 2–3 days |
+| 2 — AI Pipeline Core | 4–6 days (the largest phase — 12 stage implementations + orchestration + resilience) |
+| 3 — Topic Generation + Editor | 3–4 days |
+| 4 — Scheduling + Publishing | 2–3 days |
+| 5 — Analytics + Learning Loop | 2–3 days |
+| 6 — Hardening | 1–2 days |
+| **Total** | **~15–22 working days** |
+
+Estimates assume the AI agent (Claude Code) does the bulk of implementation against these documents with the owner reviewing and directing, not the owner writing every line manually.
