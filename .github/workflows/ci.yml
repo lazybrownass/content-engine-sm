@@ -1,0 +1,84 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+      DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      # CI runs against plain Postgres+pgvector, not Supabase's own image, so the
+      # `auth` schema and `auth.uid()` (used as the users.id default) don't exist
+      # there yet — stub them before migrating. Real environments (local Docker
+      # Compose, hosted Supabase) provide these already.
+      - name: Stub Supabase auth.uid() for CI's plain Postgres
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "
+            CREATE SCHEMA IF NOT EXISTS auth;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS \$\$ SELECT NULL::uuid \$\$;
+          "
+      - run: npx prisma migrate deploy
+      - run: npm run test:unit
+      - run: npm run test:integration
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck, test]
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder-anon-key"
+      OWNER_EMAILS: "owner@example.com"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm audit --audit-level=high
+      - uses: aquasecurity/trivy-action@master
+        with: { scan-type: fs, severity: HIGH,CRITICAL }
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          # Match the security-scan job's threshold — moderate-severity
+          # transitive advisories (e.g. Next.js's own postcss dependency)
+          # don't block a PR here either.
+          fail-on-severity: high

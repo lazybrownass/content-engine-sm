@@ -1,0 +1,46 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector, pgcrypto, pg_stat_statements, uuid_ossp(map: "uuid-ossp")]
+}
+
+model User {
+  id          String   @id @default(dbgenerated("auth.uid()")) @db.Uuid
+  email       String   @unique
+  displayName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  settings Settings?
+
+  @@map("users")
+}
+
+model Settings {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @unique @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  positioningStatement String?
+  idealClientProfile   String?
+  offers               Json     @default("[]")
+  industriesServed     String[] @default([])
+  targetAudienceNotes  String?
+  painPointNotes       String?
+  brandVoiceNotes      String?
+
+  defaultPostLength    String @default("medium")
+  weeklyPostingGoalMin Int    @default(3)
+  weeklyPostingGoalMax Int    @default(5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
