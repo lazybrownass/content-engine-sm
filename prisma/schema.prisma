@@ -7,7 +7,7 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = [vector, pgcrypto]
+  extensions = [vector, pgcrypto, pg_net, pg_stat_statements, uuid_ossp(map: "uuid-ossp"), supabase_vault]
 }
 
 model User {
