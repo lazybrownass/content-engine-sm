@@ -2,16 +2,10 @@
 CREATE SCHEMA IF NOT EXISTS "public";
 
 -- CreateExtension
-CREATE EXTENSION IF NOT EXISTS "pg_net";
-
--- CreateExtension
 CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 
 -- CreateExtension
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- CreateExtension
-CREATE EXTENSION IF NOT EXISTS "supabase_vault";
 
 -- CreateExtension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
