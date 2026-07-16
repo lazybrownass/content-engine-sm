@@ -96,6 +96,34 @@ stack above).
 5. In Vercel: import the repo, set the same env vars as `.env` (pointing at the hosted project's values) plus `OWNER_EMAILS`, then deploy.
 6. Run `npx prisma migrate deploy` against the production `DIRECT_URL` once, to create `users`/`settings` on the hosted database.
 
+**OAuth, the hosted Supabase project, and Vercel deployment are deferred** —
+tracked, not blocking (see `docs/06-Implementation-Plan.md` Phase 0
+amendment). Local dev against the Docker stack above is fully functional in
+the meantime.
+
+## CI/CD & Branching
+
+- **Branch protection on `main`:** no direct pushes, PRs required. The `CI`
+  workflow's `lint-typecheck`, `test`, `e2e`, and `security-scan` jobs must
+  pass, and the branch must be up to date with `main`, before a PR can merge.
+  Force-pushes to `main` are disallowed. Configured under GitHub → Settings →
+  Branches → Branch protection rules.
+- **CI** (`.github/workflows/ci.yml`): runs on every PR and push to `main` —
+  lint + typecheck, unit + integration tests (against a `pgvector/pgvector:pg16`
+  Postgres service container, independent of the local Docker stack), a
+  Playwright E2E smoke test, an `npm audit`/Trivy security scan, and (on PRs)
+  a dependency review.
+- **Commits:** Conventional Commits (`feat:`, `fix:`, `refactor:`, `test:`,
+  `docs:`, `chore:`, `ci:`), enforced locally by commitlint via a
+  `simple-git-hooks` `commit-msg` hook — installed automatically by
+  `npm install`'s `postinstall` script. No AI attribution in commit messages.
+- **Releases:** [release-please](https://github.com/googleapis/release-please-action)
+  (`.github/workflows/release.yml`) watches `main` and keeps a standing
+  "Release PR" up to date with a version bump and changelog generated from
+  Conventional Commit messages since the last release. To cut a release,
+  merge that PR — it creates the `vX.Y.Z` tag and GitHub Release
+  automatically. No manual changelog or version editing.
+
 ## Scripts
 
 | Command | Purpose |
@@ -106,3 +134,6 @@ stack above).
 | `npm run typecheck` | TypeScript, no emit |
 | `npx prisma studio` | Browse the database |
 | `npx prisma migrate dev` | Create/apply a migration locally |
+| `npm run test:unit` | Vitest — unit tests (`tests/unit`) |
+| `npm run test:integration` | Vitest — integration tests against Postgres (`tests/integration`) |
+| `npm run test:e2e` | Playwright — E2E tests (`tests/e2e`) |
