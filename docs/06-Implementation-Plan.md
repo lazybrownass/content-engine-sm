@@ -146,21 +146,25 @@ Each phase is small enough to ship and verify independently. Commit after every 
 
 #### Phase 0 — Project Bootstrap
 
-**Objectives:** working Next.js 16 project, connected to Supabase, deployable to Vercel, with auth gating in place before any feature work starts.
+**Objectives:** working Next.js 16 project, connected to Supabase, with auth gating in place before any feature work starts.
+
+**Amendment (owner decision, recorded here per `ai/AGENTS.md` §10 rather than left implicit):** hosted deployment and OAuth (GitHub/Google) are explicitly deferred. Development proceeds against local Supabase (Docker Compose, not the Supabase CLI, to avoid a CLI version dependency) with email/magic-link auth only, until the owner chooses to deploy. This is not a blocker being worked around — it is a deliberate sequencing choice, so Phase 0's Definition of Done is amended below rather than treated as unmet. What is **not** deferred is CI/CD: the automated lint/typecheck/test/build gate and branch protection must be in place before Phase 1 feature work starts, because that gate is what makes "merged to `main`" mean something once an AI agent is committing regularly.
 
 | Task | Deliverable |
 |---|---|
 | Initialize Next.js 16 (App Router, TS, Tailwind v4, ESLint) via `create-next-app` | Repo scaffold |
 | Add shadcn/ui, configure `components.json`, install base primitives (Button, Input, Card, Dialog, Toast/Sonner, Command) | `components/ui/*` |
-| Set up Supabase project, enable `pgvector`, configure Auth providers (GitHub, Google, Email) | Supabase project config documented in `README.md` |
+| Local Supabase via `docker/docker-compose.yml` (fixed ports), `pgvector` enabled, Email/magic-link auth working | Documented in `README.md` under "Local Setup" |
 | Add Prisma, write initial `schema.prisma` (Users + Settings only), run first migration | `prisma/migrations/0001_init` |
 | Implement middleware: session check + owner allow-list redirect | `middleware.ts` |
-| Deploy to Vercel, verify preview + production deploy pipeline | Live URL, documented in `README.md` |
+| GitHub repo with branch protection on `main`, CI workflow (`.github/workflows/ci.yml` per §5) required to pass before merge | Protected `main`, green CI on the first PR |
+| Release process wired (Conventional Commits → automated versioning/changelog) | `.github/workflows/release.yml`, first `v0.0.x` tag |
+| *(Deferred — tracked, not blocking)* GitHub/Google OAuth app credentials, hosted Supabase project, Vercel deployment | Documented as a "Production Setup" section in `README.md`, executed when the owner is ready |
 
-**Acceptance criteria:** a real GitHub/Google login succeeds, non-owner emails are redirected to `/forbidden`, owner reaches an empty `/dashboard`.
-**Testing:** manual auth flow smoke test; one Playwright E2E test covering login → dashboard → logout.
-**Risks:** Supabase Auth provider misconfiguration (redirect URLs) — mitigate by testing both preview and production redirect URLs explicitly before moving on.
-**Definition of Done:** deployed, authenticated shell live; no feature tables yet.
+**Acceptance criteria:** email/magic-link login succeeds locally, non-owner emails are redirected to `/forbidden`, owner reaches an empty `/dashboard`; a PR cannot merge to `main` without CI passing; a merge to `main` produces a version bump/changelog entry.
+**Testing:** manual auth flow smoke test against the local stack; one Playwright E2E test covering login → dashboard → logout, run in CI against the Postgres service container (independent of the local Docker Compose stack).
+**Risks:** local-only auth for an extended period risks OAuth wiring being deferred indefinitely — mitigate by keeping the "Production Setup" README section current and treating it as a named, tracked task, not a someday-maybe.
+**Definition of Done (amended):** local dev stack fully functional end-to-end, CI/CD gate and branch protection enforced on `main`, release automation producing tagged versions from Conventional Commits. Hosted deployment and OAuth remain explicitly open, tracked separately, and do not block Phase 1.
 
 #### Phase 1 — Knowledge Base
 
@@ -357,11 +361,35 @@ Model calls are always mocked in CI — real inference is non-deterministic, wou
 
 ### 7. Git Workflow & Commit Discipline
 
-- **Branch strategy:** trunk-based with short-lived feature branches (`feat/knowledge-search`, `fix/publishing-timeout`), merged to `main` via PR even when working solo with an AI agent — this preserves Vercel preview deployments and a reviewable diff history.
+- **Branch strategy:** trunk-based with short-lived feature branches (`feat/knowledge-search`, `fix/publishing-timeout`), merged to `main` via PR even when working solo with an AI agent — this preserves a reviewable diff history and (once deployment is turned on) Vercel preview deployments per branch.
+- **Branch protection on `main`:** no direct pushes; PRs required; the CI workflow (§5: lint-typecheck, test, e2e, security-scan) must pass before merge is allowed; branch must be up to date with `main` before merging. This is configured in GitHub repo settings (Settings → Branches → Branch protection rules), not just documented convention — an AI agent committing regularly needs a hard gate, not an honor system.
 - **Conventional Commits**, enforced by commitlint in a pre-commit/pre-push hook: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`, `ci:`. Scope where useful: `feat(pipeline): add quality review retry logic`.
 - **Commit after every completed task**, not after every file save — a commit should represent one coherent, working change.
 - **No AI attribution of any kind** in commit messages: no `Co-authored-by: Claude`, no "Generated with Claude Code," no contributor metadata referencing the AI agent. Commits read exactly as if written by the human owner.
 - **Automatic push** after a clean commit is acceptable once local lint/typecheck/unit tests pass; CI is the final gate before merge, not a replacement for local verification.
+
+### 7.1 Release Process
+
+Conventional Commits exist for more than readability — they drive automated versioning. This project uses **release-please** (GitHub Action, maintained by Google, native Conventional-Commits parsing) over `semantic-release` because it works as a PR-based review step (opens/updates a "Release PR" with the version bump and generated changelog, merged explicitly) rather than auto-publishing on every merge — a better fit for a solo owner who wants to see the changelog before it becomes a tagged release, and who is not publishing this to a package registry.
+
+```yaml
+# .github/workflows/release.yml
+name: Release
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+          target-branch: main
+```
+
+Behavior: every merge to `main` updates (or opens) a standing "Release PR" that accumulates the changelog from Conventional Commit messages since the last release. Merging that PR creates the version bump commit, a `vX.Y.Z` git tag, and a GitHub Release with generated notes. No manual changelog writing, no manual version bumping in `package.json`. Because deployment is currently deferred, a release tag for now marks "a verified, CI-green checkpoint of local functionality" rather than "a deployed version" — that meaning upgrades automatically once Vercel deployment is wired in, with no process change required.
 
 ### 8. Estimated Effort (solo developer + AI agent pairing)
 
