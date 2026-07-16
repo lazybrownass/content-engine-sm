@@ -13,46 +13,59 @@ tables yet.
 ## Prerequisites
 
 - Node.js 22+
-- A Supabase project (free tier is sufficient)
-- A GitHub OAuth App and a Google OAuth Client, for social login
+- Docker Desktop (local dev stack)
+- For production: a Supabase project (free tier is sufficient), and a GitHub OAuth App / Google OAuth Client for social login
 
 ## Local Setup
 
-### 1. Create a Supabase project
+Local dev runs entirely in Docker via a hand-maintained `docker/docker-compose.yml`
+(Postgres+pgvector, GoTrue, PostgREST, Realtime, Storage, Kong, Studio, Mailpit,
+edge-runtime) — fixed ports, no `supabase` CLI dependency. Production still uses
+a hosted Supabase project (see "Production Setup" below); this section is local-only.
 
-1. Create a new project at the [Supabase dashboard](https://supabase.com/dashboard).
-2. Note the project URL and the `anon` / `service_role` API keys (Project Settings → API).
-3. Note the pooled connection string (Project Settings → Database → Connection string → "Transaction" mode) and the direct connection string ("Session" / direct mode) — these become `DATABASE_URL` and `DIRECT_URL`.
+### 1. Start the local stack
 
-### 2. Enable the pgvector extension
+```bash
+cp docker/.env.example docker/.env   # fill in ANON_KEY/SERVICE_ROLE_KEY/SECRET_KEY_BASE — see comments in the file
+docker compose --env-file docker/.env -f docker/docker-compose.yml up -d
+```
 
-Database → Extensions → search "vector" → enable `vector`. `pgcrypto` (used
-for `gen_random_uuid()`) is enabled by default on Supabase projects.
+Fixed ports (match `docker/.env` — do not change without updating `.env` too):
 
-### 3. Configure Auth providers
+| Service | Port | Purpose |
+|---|---|---|
+| Kong (API gateway) | `54321` | `NEXT_PUBLIC_SUPABASE_URL` — all REST/Auth/Storage/Realtime traffic |
+| Postgres | `54322` | `DATABASE_URL` / `DIRECT_URL` |
+| Studio | `54323` | DB/table browser UI |
+| Mailpit | `54324` | view magic-link emails sent by local Auth |
+| GoTrue / PostgREST / Realtime / Storage / postgres-meta / edge-runtime | `9999` / `3001` / `4000` / `5001` / `8080` / `8081` | direct debug access (the app talks to these through Kong, not directly) |
 
-Authentication → Providers, in the Supabase dashboard:
+pgvector is enabled by default in the `supabase/postgres` image used for `db`.
 
-- **GitHub** — create an OAuth App at https://github.com/settings/developers with callback URL `https://<project-ref>.supabase.co/auth/v1/callback`. Paste the Client ID/Secret into Supabase's GitHub provider config and enable it.
-- **Google** — create an OAuth Client in Google Cloud Console (APIs & Services → Credentials) with authorized redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`. Paste the Client ID/Secret into Supabase's Google provider config and enable it.
-- **Email** — enable the built-in Email provider (magic link). No extra config needed for local dev.
+### 2. Configure Auth providers (optional, for GitHub/Google login)
 
-Then, in Authentication → URL Configuration:
+GoTrue's declarative config for local dev only enables Email (magic link) by
+default. To add GitHub/Google, add `GOTRUE_EXTERNAL_GITHUB_*` /
+`GOTRUE_EXTERNAL_GOOGLE_*` env vars to the `auth` service in
+`docker/docker-compose.yml` (see the commented-out block in Supabase's
+[official self-hosting compose](https://github.com/supabase/supabase/blob/master/docker/docker-compose.yml)
+for the exact variable names), using OAuth app callback URL
+`http://localhost:54321/auth/v1/callback`.
 
-- Site URL: `http://localhost:3000`
-- Redirect URLs: add `http://localhost:3000/auth/callback` (add the deployed URL's equivalent once a Vercel deployment exists).
-
-### 4. Set environment variables
+### 3. Set environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in the values from steps 1–3. `OWNER_EMAILS` is a comma-separated list
-of the email address(es) allowed past `/login` — any other authenticated
-address is redirected to `/forbidden`.
+`docker/.env`'s `ANON_KEY`/`SERVICE_ROLE_KEY` go into the app's `.env` as
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY`; `NEXT_PUBLIC_SUPABASE_URL`
+is `http://127.0.0.1:54321`; `DATABASE_URL`/`DIRECT_URL` both point at
+`postgresql://postgres:postgres@127.0.0.1:54322/postgres` (no pooler locally).
+`OWNER_EMAILS` is a comma-separated list of the email address(es) allowed past
+`/login` — any other authenticated address is redirected to `/forbidden`.
 
-### 5. Install dependencies and run the first migration
+### 4. Install dependencies and run the first migration
 
 ```bash
 npm install
@@ -61,7 +74,7 @@ npx prisma migrate dev --name init
 
 Creates the `users` and `settings` tables (via `DIRECT_URL`).
 
-### 6. Run the dev server
+### 5. Run the dev server
 
 ```bash
 npm run dev
@@ -70,6 +83,18 @@ npm run dev
 Visit http://localhost:3000 — unauthenticated requests redirect to
 `/login`. Signing in with an `OWNER_EMAILS` address lands on `/dashboard`;
 any other address is redirected to `/forbidden`.
+
+## Production Setup
+
+Deployment target is Vercel + a hosted Supabase project (not the local Docker
+stack above).
+
+1. Create a project at the [Supabase dashboard](https://supabase.com/dashboard); note the project URL and `anon`/`service_role` keys (Project Settings → API), and the pooled ("Transaction" mode) + direct ("Session" mode) connection strings (Project Settings → Database) — these become `DATABASE_URL` and `DIRECT_URL`.
+2. Database → Extensions → enable `vector` (`pgcrypto` is on by default).
+3. Authentication → Providers: enable Email, and GitHub/Google if using social login (GitHub OAuth App at https://github.com/settings/developers, Google OAuth Client in Google Cloud Console — callback URL `https://<project-ref>.supabase.co/auth/v1/callback` for both).
+4. Authentication → URL Configuration: Site URL and Redirect URLs matching the Vercel deployment URL (`https://<app>.vercel.app/auth/callback`).
+5. In Vercel: import the repo, set the same env vars as `.env` (pointing at the hosted project's values) plus `OWNER_EMAILS`, then deploy.
+6. Run `npx prisma migrate deploy` against the production `DIRECT_URL` once, to create `users`/`settings` on the hosted database.
 
 ## Scripts
 
