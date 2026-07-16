@@ -77,3 +77,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/dependency-review-action@v4
+        with:
+          # Match the security-scan job's threshold — moderate-severity
+          # transitive advisories (e.g. Next.js's own postcss dependency)
+          # don't block a PR here either.
+          fail-on-severity: high
