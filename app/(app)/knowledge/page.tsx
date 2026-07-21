@@ -1,7 +1,7 @@
-import { KnowledgeCategory, Pillar } from "@prisma/client";
+import { KnowledgeCategory, Pillar, type KnowledgeItem } from "@prisma/client";
 
 import { formatEnumLabel } from "@/lib/utils";
-import { getKnowledgeItems } from "@/features/knowledge/queries";
+import { getKnowledgeItems, searchKnowledgeItems } from "@/features/knowledge/queries";
 import { KnowledgeList } from "@/features/knowledge/components/knowledge-list";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -21,13 +21,30 @@ export default async function KnowledgePage({
   const pillar = get("pillar");
   const q = get("q");
   const cursor = get("cursor");
+  const trimmedQuery = q?.trim();
 
-  const result = await getKnowledgeItems({
-    ...(category && { category }),
-    ...(pillar && { pillar }),
-    ...(q && { search: q }),
-    ...(cursor && { cursor }),
-  });
+  let items: KnowledgeItem[];
+  let nextCursor: string | null = null;
+  let relevance: Record<string, { score: number; matchedContent: string }> | undefined;
+
+  if (trimmedQuery) {
+    const results = await searchKnowledgeItems(trimmedQuery);
+    items = results.map((result) => result.item);
+    relevance = Object.fromEntries(
+      results.map((result) => [
+        result.item.id,
+        { score: result.score, matchedContent: result.matchedContent },
+      ]),
+    );
+  } else {
+    const result = await getKnowledgeItems({
+      ...(category && { category }),
+      ...(pillar && { pillar }),
+      ...(cursor && { cursor }),
+    });
+    items = result.items;
+    nextCursor = result.nextCursor;
+  }
 
   const filterParams: Record<string, string> = {};
   if (category) filterParams.category = category;
@@ -53,7 +70,7 @@ export default async function KnowledgePage({
             name="q"
             type="search"
             defaultValue={q ?? ""}
-            placeholder="Search title or body..."
+            placeholder="Search by keyword or meaning..."
             className="h-8 w-56 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           />
         </div>
@@ -102,9 +119,11 @@ export default async function KnowledgePage({
       </form>
 
       <KnowledgeList
-        items={result.items}
-        nextCursor={result.nextCursor}
+        items={items}
+        nextCursor={nextCursor}
         searchParams={filterParams}
+        query={trimmedQuery}
+        relevance={relevance}
       />
     </div>
   );
