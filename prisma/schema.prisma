@@ -19,6 +19,7 @@ model User {
 
   settings       Settings?
   knowledgeItems KnowledgeItem[]
+  brandVoices    BrandVoice[]
 
   @@map("users")
 }
@@ -118,4 +119,36 @@ model KnowledgeChunk {
   @@index([knowledgeItemId])
   @@index([embeddingStatus, createdAt])
   @@map("knowledge_chunks")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BRAND VOICE
+//
+// A manually-authored style config the owner can name and switch between
+// (tone/forbidden words/signature hooks/formatting rules), distinct from the
+// documented but not-yet-built DomainContext (industry vocabulary/tone/
+// compliance, docs/05-Backend-Schema.md) and StyleMemoryProfile (writing
+// style learned from post history). Introduced ahead of the pipeline as a
+// documented out-of-order insertion — see docs/06-Implementation-Plan.md's
+// "Phase 2.5" section.
+// ─────────────────────────────────────────────────────────────────────────
+
+model BrandVoice {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name            String
+  tone            String[] @default([])
+  targetAudience  String?
+  forbiddenWords  String[] @default([])
+  signatureHooks  String[] @default([])
+  formattingRules String[] @default([])
+  isDefault       Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@map("brand_voices")
 }
