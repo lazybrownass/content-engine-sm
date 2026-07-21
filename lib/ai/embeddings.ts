@@ -1,6 +1,6 @@
 import { callHuggingFaceInference } from "@/lib/ai/providers/huggingface";
 
-const EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"; // 768 dims, matches KnowledgeChunk.embedding column
+export const EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"; // 768 dims, matches KnowledgeChunk.embedding column
 const EMBEDDING_DIMENSIONS = 768;
 
 function isNumberArray(value: unknown): value is number[] {
