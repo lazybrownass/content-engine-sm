@@ -17,6 +17,7 @@ erDiagram
     USERS ||--o{ PROMPT_TEMPLATES : owns
     USERS ||--o{ AUDIT_LOGS : generates
     USERS ||--o{ DOMAIN_CONTEXTS : defines
+    USERS ||--o{ BRAND_VOICES : configures
 
     KNOWLEDGE_ITEMS ||--o{ KNOWLEDGE_CHUNKS : chunked_into
     TOPICS ||--o| POSTS : becomes
@@ -225,7 +226,7 @@ model Settings {
   industriesServed     String[] @default([])
   targetAudienceNotes  String?
   painPointNotes       String?
-  brandVoiceNotes      String?
+  brandVoiceNotes      String? // legacy freeform note, superseded for structured use by BrandVoice (§2.x) — left as-is, no migration
 
   defaultPostLength    String   @default("medium") // short | medium | long
   weeklyPostingGoalMin Int      @default(3)
@@ -347,6 +348,41 @@ model StyleMemoryExample {
   createdAt              DateTime            @default(now())
 
   @@map("style_memory_examples")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BRAND VOICE (Phase 2.5 insertion — see 06-Implementation-Plan.md)
+//
+// A manually-authored, ownercurated style config the owner names and switches
+// between at generation time. Distinct from the two models above it:
+//   - DomainContext is industry-derived (vocabulary/tone/compliance per niche).
+//   - StyleMemoryProfile is learned from post history (computed, not authored).
+//   - BrandVoice is neither: it's a small set of explicit rules (tone words,
+//     forbidden words, signature hooks, formatting rules) the owner writes and
+//     picks from directly, independent of industry or history.
+// Settings.brandVoiceNotes (§2, above) is an older freeform single note,
+// unrelated and untouched — BrandVoice is the structured, multi-record
+// successor for on-demand generation, not a replacement for that field.
+// ─────────────────────────────────────────────────────────────────────────
+
+model BrandVoice {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name            String
+  tone            String[] @default([])
+  targetAudience  String?
+  forbiddenWords  String[] @default([])
+  signatureHooks  String[] @default([])
+  formattingRules String[] @default([])
+  isDefault       Boolean  @default(false) // app-layer transaction enforces at most one default per owner — same reasoning as PromptTemplate.isActive below, no partial unique index
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@map("brand_voices")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -735,6 +771,7 @@ ALTER TABLE style_memory_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE style_memory_examples ENABLE ROW LEVEL SECURITY;
 ALTER TABLE domain_contexts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE generated_media ENABLE ROW LEVEL SECURITY;
+ALTER TABLE brand_voices ENABLE ROW LEVEL SECURITY;
 
 -- Example policy pattern, repeated per owner-scoped table
 CREATE POLICY "owner_full_access" ON knowledge_items

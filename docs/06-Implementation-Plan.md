@@ -217,6 +217,24 @@ Each phase is small enough to ship and verify independently. Commit after every 
 **Risks:** a stage silently producing malformed structured output (LLMs are not perfectly reliable at strict JSON) — mitigate with Zod validation on every stage output and automatic single retry with a stricter "return valid JSON only" instruction on validation failure.
 **Definition of Done:** pipeline runs are resumable after a server restart (state lives in Postgres, not memory) and every failure mode surfaces a specific, actionable error in the UI.
 
+#### Phase 2.5 — Brand Voice & On-Demand Generation (documented out-of-order insertion)
+
+**Objectives:** a scoped, one-shot alternative to the full pipeline for quick on-demand content generation, built ahead of Phase 2's orchestrator being complete. Explicitly out of sequence — recorded here per AGENTS.md §10.1 so this deviation doesn't silently drift from the plan, rather than left undocumented.
+
+| Task | Deliverable |
+|---|---|
+| `BrandVoice` model: manually-authored tone/forbiddenWords/signatureHooks/formattingRules, owner-scoped, RLS in the same migration | `prisma/migrations/*_add_brand_voice_schema` |
+| Minimal `lib/ai/model-router.ts` (single `getModel(purpose)` export, one purpose key today) as the sanctioned AGENTS.md Rule 4 model-SDK boundary, ahead of Phase 2's full per-stage/`prompt_templates` routing, which will extend rather than replace it | `lib/ai/model-router.ts` |
+| `features/brand-voice/{schema,actions,queries}.ts` CRUD, mirroring `features/knowledge/*`'s conventions | Brand Voice CRUD |
+| `features/generation/{schema,prompt}.ts` — prompt synthesis consuming `searchKnowledgeItems` (Phase 1) RAG results + a selected `BrandVoice`, with explicit forbidden-word/tone constraints and an anti-fabrication guard | Prompt synthesis engine |
+| `app/api/generate/route.ts` — streaming `streamObject` endpoint. A narrow, explicitly-flagged exception to AGENTS.md Rule 2 (Route Handlers are normally reserved for webhooks/cron/pipeline-tick): `@ai-sdk/react`'s `useObject` hook requires a fetch-consumable streaming `Response`, which a Server Action cannot produce | On-demand generation endpoint |
+| `/generate` page: Brand Voice selector, RAG context preview, streamed LinkedIn/X-thread/hook output with copy buttons | `app/(app)/generate/page.tsx` |
+
+**Acceptance criteria:** the owner can select a `BrandVoice`, enter a topic, and get a streamed LinkedIn post, X thread, and hook grounded in the knowledge base, honoring that voice's forbidden words and tone. No pipeline/orchestrator/PromptTemplate machinery required — this path is independent of Phase 2's stage pipeline.
+**Testing:** unit tests for schema/prompt-building; integration tests for BrandVoice CRUD (including the AGENTS.md §9.5 cross-owner RLS check) and the generation route with a mocked model; E2E happy path with the model mocked behind an `E2E_MOCK_LLM` flag (§9.3 — never assert on real model output in CI).
+**Risks:** `@ai-sdk/huggingface`'s Inference-Providers routing doesn't guarantee native JSON-schema/tool-calling support per model — mitigated with `experimental_repairText` plus soft (`.describe()`, not hard `.max()`) length constraints on model-authored fields, and an explicit failure surfaced to the UI if recovery still fails.
+**Definition of Done:** same bar as other phases (§14) — lint/typecheck/tests pass, RLS present, docs (this section) match the shipped implementation.
+
 #### Phase 3 — Topic Generation + Editor
 
 **Objectives:** close the loop from knowledge → topic suggestion → owner decision → editor.
