@@ -60,6 +60,10 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxNzk5NTM1NjAwfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q"
       OWNER_EMAILS: "owner@example.com"
       HUGGINGFACE_API_TOKEN: ${{ secrets.HUGGINGFACE_API_TOKEN }}
+      # Keeps tests/e2e/generate.spec.ts hermetic (a hand-rolled mock model, not a real HF
+      # call) per ai/AGENTS.md 9.3 — the knowledge-search e2e test is unaffected, since this
+      # only swaps the generation model-router branch, not embeddings/reranking.
+      E2E_MOCK_LLM: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/auth/server-client";
 import { isOwnerEmail } from "@/lib/auth/session";
@@ -17,8 +18,16 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="border-b px-6 py-4">
+      <header className="flex items-center gap-6 border-b px-6 py-4">
         <span className="font-semibold">LinkedIn Content Engine</span>
+        <nav className="flex gap-4 text-sm">
+          <Link href="/generate" className="hover:underline">
+            Generate
+          </Link>
+          <Link href="/knowledge" className="hover:underline">
+            Knowledge
+          </Link>
+        </nav>
       </header>
       <main className="flex-1 p-6">{children}</main>
     </div>
