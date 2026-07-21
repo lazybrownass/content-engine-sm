@@ -116,5 +116,6 @@ model KnowledgeChunk {
   createdAt       DateTime      @default(now())
 
   @@index([knowledgeItemId])
+  @@index([embeddingStatus, createdAt])
   @@map("knowledge_chunks")
 }
