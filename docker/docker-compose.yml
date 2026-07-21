@@ -37,6 +37,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXP: ${JWT_EXPIRY}
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN}
 
   auth:
     container_name: linkedin-auth
@@ -82,6 +83,21 @@ services:
       GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
       GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
       GOTRUE_SMS_AUTOCONFIRM: "false"
+      # -----------------------------------------------------------------------
+      # GOOGLE OAUTH
+      # -----------------------------------------------------------------------
+      GOTRUE_EXTERNAL_GOOGLE_ENABLED: "true"
+      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID}
+      GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOTRUE_EXTERNAL_GOOGLE_SECRET}
+      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: "http://localhost:54321/auth/v1/callback"
+
+      # -----------------------------------------------------------------------
+      # GITHUB OAUTH
+      # -----------------------------------------------------------------------
+      GOTRUE_EXTERNAL_GITHUB_ENABLED: "true"
+      GOTRUE_EXTERNAL_GITHUB_CLIENT_ID: ${GOTRUE_EXTERNAL_GITHUB_CLIENT_ID}
+      GOTRUE_EXTERNAL_GITHUB_SECRET: ${GOTRUE_EXTERNAL_GITHUB_SECRET}
+      GOTRUE_EXTERNAL_GITHUB_REDIRECT_URI: "http://localhost:54321/auth/v1/callback"
 
   rest:
     container_name: linkedin-rest
