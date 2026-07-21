@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { KnowledgeCategory, Pillar, type KnowledgeItem } from "@prisma/client";
 import { toast } from "sonner";
 
@@ -71,13 +71,15 @@ export function KnowledgeFormDrawer({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [wasOpen, setWasOpen] = useState(open);
 
-  useEffect(() => {
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setValues(toFormValues(item));
       setErrors({});
     }
-  }, [open, item]);
+  }
 
   function togglePillar(pillar: string) {
     setValues((prev) => ({
