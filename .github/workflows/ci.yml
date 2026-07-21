@@ -84,12 +84,16 @@ jobs:
           GOTRUE_EXTERNAL_GITHUB_CLIENT_ID=ci-placeholder
           GOTRUE_EXTERNAL_GITHUB_SECRET=ci-placeholder
           EOF
-          # public.ecr.aws anonymous pulls are rate-limited and shared GitHub-hosted
-          # runner IPs hit that limit often — retry with backoff instead of failing outright.
-          for attempt in 1 2 3 4 5; do
-            docker compose --env-file .env -f docker-compose.yml pull db auth kong mailpit studio meta rest && break
-            echo "Pull attempt $attempt failed (likely an ECR rate limit), retrying in 20s..."
-            sleep 20
+          # public.ecr.aws anonymous pulls are rate-limited and shared GitHub-hosted runner
+          # IPs hit that limit often. Pulling all 7 images at once (docker compose pull's
+          # default) bursts enough requests to trip it even across retries, so pull one
+          # image at a time with its own backoff to spread requests out.
+          for svc in db auth kong mailpit studio meta rest; do
+            for attempt in 1 2 3 4 5 6; do
+              docker compose --env-file .env -f docker-compose.yml pull "$svc" && break
+              echo "Pull of $svc failed (attempt $attempt, likely an ECR rate limit), retrying in 30s..."
+              sleep 30
+            done
           done
           docker compose --env-file .env -f docker-compose.yml up -d --wait db auth kong mailpit
       - run: npx prisma migrate deploy
