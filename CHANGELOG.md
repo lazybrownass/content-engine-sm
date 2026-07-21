@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.0.0...v1.1.0) (2026-07-21)
+
+
+### Features
+
+* Add Brand Voice Generation Engine (Phase 3) ([#4](https://github.com/lazybrownass/content-engine-sm/issues/4)) ([cd8640a](https://github.com/lazybrownass/content-engine-sm/commit/cd8640a562b7b366586a2bf75da9f8f8286aa891))
+
 ## 1.0.0 (2026-07-16)
 
 
