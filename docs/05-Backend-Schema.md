@@ -658,24 +658,37 @@ model AuditLog {
 
 ### 3. Notes on Prisma + pgvector
 
-Prisma does not natively model `vector` columns; `Unsupported("vector(768)")` marks the column so `prisma migrate` still tracks it, but all reads/writes and similarity queries against `knowledge_chunks.embedding` go through raw parameterized queries:
+Prisma does not natively model `vector` columns; `Unsupported("vector(768)")` marks the column so `prisma migrate` still tracks it, but all reads/writes and similarity queries against `knowledge_chunks.embedding` go through raw parameterized queries. Note the applied schema keeps Prisma's default camelCase column names (no `@map` on individual fields) — raw SQL must double-quote them (`"ownerId"`, `"knowledgeItemId"`, `"embeddingStatus"`); the sole exception is `search_vector`, added directly in the migration as snake_case since it's invisible to Prisma anyway.
+
+Hybrid search (`lib/knowledge/search.ts`) runs keyword FTS and vector similarity as two independent candidate queries, then reranks the deduped union — it does not rely on the vector query alone. `search_vector` lives on `knowledge_items` (title + body), not per-chunk, so the FTS query matches at the item level and returns that item's chunks:
 
 ```typescript
-// lib/knowledge/search.ts
-const results = await prisma.$queryRaw<KnowledgeSearchRow[]>`
-  SELECT kc.id, kc.content, ki.title, ki.category,
-         1 - (kc.embedding <=> ${embedding}::vector) AS similarity
+// lib/knowledge/search.ts — FTS candidates
+const ftsRows = await prisma.$queryRaw<CandidateRow[]>`
+  SELECT kc.id AS "chunkId", kc."knowledgeItemId", ki.title, ki.category, kc.content
   FROM knowledge_chunks kc
-  JOIN knowledge_items ki ON ki.id = kc.knowledge_item_id
-  WHERE ki.owner_id = ${ownerId}::uuid
+  JOIN knowledge_items ki ON ki.id = kc."knowledgeItemId"
+  WHERE ki."ownerId" = ${ownerId}::uuid
     AND ki.archived = false
-    AND kc.embedding_status = 'ready'
-  ORDER BY kc.embedding <=> ${embedding}::vector
-  LIMIT 20
+    AND ki.search_vector @@ websearch_to_tsquery('english', ${query})
+  ORDER BY ts_rank_cd(ki.search_vector, websearch_to_tsquery('english', ${query})) DESC, kc.ordinal ASC
+  LIMIT 10
+`;
+
+// lib/knowledge/search.ts — vector candidates
+const vectorRows = await prisma.$queryRaw<CandidateRow[]>`
+  SELECT kc.id AS "chunkId", kc."knowledgeItemId", ki.title, ki.category, kc.content
+  FROM knowledge_chunks kc
+  JOIN knowledge_items ki ON ki.id = kc."knowledgeItemId"
+  WHERE ki."ownerId" = ${ownerId}::uuid
+    AND ki.archived = false
+    AND kc."embeddingStatus" = 'ready'
+  ORDER BY kc.embedding <=> ${vectorLiteral}::vector
+  LIMIT 10
 `;
 ```
 
-The `<=>` operator is pgvector's cosine distance; results are then passed through the cross-encoder reranker (TRD §5.2) before being handed to the Knowledge Retrieval stage.
+The `<=>` operator is pgvector's cosine distance. `vectorLiteral` is a `[0.1,-0.2,...]`-formatted string built from the query embedding and bound as a normal `text` parameter that Postgres casts via `::vector` — this is Prisma's standard safe pattern for pgvector (there's no native vector bind type), not string concatenation into SQL syntax. The deduped union of both candidate sets (capped at 20, matching the reranker's target) is passed through the cross-encoder reranker (TRD §5.2) — the reranker's score is the sole ranking signal for the final result, not a weighted blend with the FTS/vector scores above.
 
 ### 4. Indexes Beyond Prisma Defaults
 
