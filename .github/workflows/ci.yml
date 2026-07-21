@@ -51,14 +51,48 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint-typecheck, test]
     env:
+      # Same fixed local-dev demo JWT/keys docker/.env.example documents (Supabase CLI's
+      # public demo values, safe to commit — never used against a real project).
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:54322/postgres"
+      DIRECT_URL: "postgresql://postgres:postgres@localhost:54322/postgres"
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder-anon-key"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MTc5OTUzNTYwMH0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxNzk5NTM1NjAwfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q"
       OWNER_EMAILS: "owner@example.com"
+      HUGGINGFACE_API_TOKEN: ${{ secrets.HUGGINGFACE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      # Reuse the same docker/docker-compose.yml local dev already runs against, instead of
+      # hand-translating its 9 services + depends_on/healthcheck graph into raw GH Actions
+      # `services:` blocks (which don't support inter-service depends_on at all). Only bring up
+      # what login + hybrid search touch: db, auth (GoTrue), kong (routes /auth/v1/*), mailpit
+      # (catches the magic-link email); kong's `depends_on: studio` transitively starts
+      # studio/meta/rest too. realtime/storage/functions are left out — unused by these tests.
+      - name: Start local Supabase stack (db, auth, kong, mailpit)
+        working-directory: docker
+        run: |
+          cp .env.example .env
+          cat >> .env <<'EOF'
+          ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MTc5OTUzNTYwMH0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
+          SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxNzk5NTM1NjAwfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
+          SECRET_KEY_BASE=ci-only-secret-key-base-not-used-by-login-or-search-tests-000000
+          GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID=ci-placeholder
+          GOTRUE_EXTERNAL_GOOGLE_SECRET=ci-placeholder
+          GOTRUE_EXTERNAL_GITHUB_CLIENT_ID=ci-placeholder
+          GOTRUE_EXTERNAL_GITHUB_SECRET=ci-placeholder
+          EOF
+          # public.ecr.aws anonymous pulls are rate-limited and shared GitHub-hosted
+          # runner IPs hit that limit often — retry with backoff instead of failing outright.
+          for attempt in 1 2 3 4 5; do
+            docker compose --env-file .env -f docker-compose.yml pull db auth kong mailpit studio meta rest && break
+            echo "Pull attempt $attempt failed (likely an ECR rate limit), retrying in 20s..."
+            sleep 20
+          done
+          docker compose --env-file .env -f docker-compose.yml up -d --wait db auth kong mailpit
+      - run: npx prisma migrate deploy
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run test:e2e

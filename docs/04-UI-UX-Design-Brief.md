@@ -180,18 +180,55 @@ Analytics visualizations use **Recharts** (React-native, SSR-safe with client-bo
 
 | Type | Usage | Style |
 |---|---|---|
-| Status badge | Post status (`draft`, `in_review`, `approved`, `scheduled`, `published`, `failed`) | `radius-full`, `text-caption`, colored bg at 10% opacity of semantic color + full-opacity text |
+| Status badge | Post status — see §7.12 for the full 13-value mapping | `radius-full`, `text-caption`, colored bg at 10% opacity of semantic color + full-opacity text |
 | Pillar tag | Content pillar label | `radius-sm`, neutral gray bg, used consistently across topics/posts/analytics for scannability |
 | Model tag | Which model produced a stage output (shown in stage viewer) | `radius-sm`, monospace text, `--color-bg-muted` |
 
+#### 7.12 Post Status Badges
+
+All 13 `PostStatus` values (`05-Backend-Schema.md`) map onto the existing semantic color tokens from §2 — no new colors are introduced; per the "restraint in color" principle (§1), the mapping groups by meaning, not by giving every status its own hue:
+
+| Bucket | Color token | Statuses | Why this bucket |
+|---|---|---|---|
+| Neutral | `--color-text-tertiary` on `--color-bg-muted` | `DRAFT`, `REJECTED`, `ARCHIVED` | Not yet started, or deliberately, calmly ended — none of these are errors, so none get warning/danger treatment |
+| Info (blue) | `--color-info-text` on `--color-info-bg` | `PIPELINE_RUNNING`, `IN_EDIT`, `SCHEDULED`, `PUBLISHING` | Something — system or owner — is actively in motion right now |
+| Warning (amber) | `--color-warning-text` on `--color-warning-bg` | `GRILLING`, `NEEDS_OWNER_REVIEW`, `PUBLISH_UNCONFIRMED` | Uncertain or needs owner attention, but not a failure |
+| Primary (green) | `--color-primary-700` on `--color-primary-100` | `APPROVED`, `PUBLISHED` | Successful, settled states |
+| Danger (red) | `--color-danger-text` on `--color-danger-bg` | `FAILED` | Reserved exclusively for genuine failures — never used for `REJECTED`, which is a normal owner decision, not an error |
+
+Every status badge pairs its color with the status label text (never color alone, per §10 Accessibility). `GRILLING` additionally renders a small spinner icon inline (see §8) so it reads as "in progress" even before the owner reads the label.
+
+#### 7.13 Domain Category Badge
+
+`DomainContext.category` (`TECH`, `HEALTH`, `REAL_ESTATE`, `FINANCE`, `MARKETING`, `OTHER`) is shown the same way the existing Pillar tag is — `radius-sm`, neutral `--color-bg-muted` background, no per-category color — six colors for a taxonomy tag would directly violate the "one primary color, everything else grayscale" principle (§1). Categories are instead distinguished by a small Lucide icon (16px, `1.5px` stroke) paired with the text: `Cpu` (Tech), `HeartPulse` (Health), `Home` (Real Estate), `Landmark` (Finance), `Megaphone` (Marketing), `Tag` (Other). The badge shows the `DomainContext.label` free-text field as the primary text (e.g. "Residential Real Estate — First-Time Buyers") with the category icon as a secondary, smaller-scale cue — the enum categorizes for rollups, the label is what the owner actually reads.
+
 ### 8. Pipeline Stage Viewer (signature component)
 
-This is the one genuinely novel component in the system — the visual representation of a post moving through 17 pipeline stages. Design:
+This is the one genuinely novel component in the system — the visual representation of a post moving through the 12-stage pipeline (`02-TRD.md` §4). Design:
 
 - Vertical stepper, each stage a row: status icon (pending/running/done/failed) → stage name → collapsed one-line summary of output → expand chevron.
 - Running stage shows an indeterminate progress bar (not a percentage — stage duration is unpredictable) and the model name being used.
 - Failed stage expands automatically, shows the error and a "Retry this stage" button inline — no need to scroll to find it.
-- Completed stages are collapsed by default (reduce scroll fatigue on a 17-stage list) but expandable to inspect full input/output — this is the "editable at every stage" UX principle from `03-App-Flow.md` made concrete.
+- Completed stages are collapsed by default (reduce scroll fatigue on a 12-stage list) but expandable to inspect full input/output — this is the "editable at every stage" UX principle from `03-App-Flow.md` made concrete.
+- **Quality Review row (the "Grill" loop, `02-TRD.md` §4.1) is a specialized variant of the generic row above:**
+  - While `Post.status = GRILLING`, the row's status icon is a distinct amber spinner (not the generic blue "running" spinner every other stage uses) — the owner should be able to tell at a glance that self-critique, not generation, is happening.
+  - Once a `qualityScore` exists, a small circular 0–100 gauge (`radius-full` ring) renders inline in the row, labelled with the number and the active gate (e.g. "72 / 85"). The ring is primary-green when the score clears `Settings.minQualityScore`, warning-amber when it doesn't — paired with the visible number, never color alone.
+  - If the bounded revision cycle has fired, the row shows a small "Revision 1 of 1" indicator (from `Post.grillCycles`) so the owner understands this is a bounded retry, not an open-ended loop.
+  - The row auto-expands whenever the gate isn't cleared (same auto-expand behavior as a failed stage) into a **self-critique feedback drawer**: the gauge at the top, followed by the structured rubric breakdown (banned-pattern hits, DomainContext tone/vocabulary match, hook strength, specificity) as a short list, each item flagged with a check or warning icon — same icon-plus-text visual language as the repeated-phrase warning banner, never a color-only flag.
+
+#### 8.1 Domain Context Selector & Management UI
+
+- **Selector** (used on `/topics/generate`, `03-App-Flow.md` §5): a shadcn/ui `Select`/`Combobox` where each option shows the `DomainContext.label` with its category badge (§7.13) inline; the context with `isDefault = true` is pinned at the top as "Default"; if none are configured yet, the control shows an empty state inline linking to `/settings/domain-context` rather than being disabled silently.
+- **Management** (`/settings/domain-context`): standard list table (§7.3) — columns: label, category badge, a "Default" chip on the default row, archived toggle. Row click opens the edit form: `label` (text input), `category` (Select, the 6 enum options), `vocabularyNotes`/`toneNotes`/`complianceNotes` (three separate `Textarea` fields, each with helper text explaining its purpose, per `01-PRD.md` §6.2), and a "Set as default" switch. Archiving uses the existing confirmation-dialog pattern (§7.7) — copy explicitly states that Topics/Posts already referencing this context are unaffected (`03-App-Flow.md` §10.1), since this is a soft archive, not a delete, and shouldn't read as more destructive than it is.
+
+#### 8.2 Media Generation Panel
+
+A `Sheet` (shadcn/ui drawer, slides from the right) opened from a toolbar button on `/posts/[id]/edit` — a drawer rather than a modal because media generation is a supporting, dismissible side task, not an interrupting decision (§7.7 reserves modals for those).
+
+- **Provider toggle:** a two-option segmented control — "Image / Diagram — Gemini Imagen 3" vs. "Video Clip — Higgsfield dop-lite" — a toggle rather than a dropdown since there are exactly two, both worth showing at all times.
+- **Prompt input:** a `Textarea`, pre-filled with a suggestion derived from the post's content but fully editable.
+- **Cost confirmation badge:** sits directly above the Generate button, `radius-sm`, warning color (`--color-warning-bg`/`--color-warning-text` — cost is attention-worthy the same way `NEEDS_OWNER_REVIEW` is, not an error), reading "~$0.03 per generation" or "~$0.13 per generation" depending on the toggle, updating live. The badge being unavoidably inline (not a separate confirmation checkbox) is the confirmation step itself — consistent with the system's restraint against overbuilt consent UI.
+- **Generated items list:** each item is a small card — thumbnail/video-poster, a Model-tag-style provider label (§7.11, monospace, `--color-bg-muted`), and a status badge reusing three of the same semantic buckets from §7.12 rather than inventing a fourth badge style: `PENDING` (info-blue, small spinner), `READY` (primary-green), `FAILED` (danger-red, with the error text and a retry action inline). A ghost trash-icon button deletes an unused item, confirmed via the same lightweight pattern as other non-catastrophic deletes.
 
 ### 9. Responsive Behavior
 
@@ -207,7 +244,7 @@ The tool is used primarily on desktop (writing/review workflow), but mobile is s
 
 - All interactive elements reachable and operable via keyboard; tab order follows visual/logical order; no keyboard traps in dialogs or the command palette.
 - Every icon-only control has an `aria-label`.
-- Color is never the sole signal — status badges pair color with text/icon; the repeated-phrase warning uses an icon + text, not just a yellow highlight.
+- Color is never the sole signal — status badges pair color with text/icon; the repeated-phrase warning uses an icon + text, not just a yellow highlight; the qualityScore gauge (§8) always renders its numeric value as text alongside the ring, never the ring color alone.
 - Form errors are announced via `aria-live="polite"` regions, associated to their field via `aria-describedby`.
 - Focus is programmatically moved to the first error on failed form submission, and to a dialog's first focusable element on open, returned to the trigger on close.
 - Minimum touch target `44×44px` on any touch-capable viewport, even for `sm` buttons (achieved via padding, not visual size increase).

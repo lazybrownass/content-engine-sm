@@ -17,7 +17,8 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  settings Settings?
+  settings       Settings?
+  knowledgeItems KnowledgeItem[]
 
   @@map("users")
 }
@@ -43,4 +44,78 @@ model Settings {
   updatedAt DateTime @updatedAt
 
   @@map("settings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// KNOWLEDGE BASE
+// ─────────────────────────────────────────────────────────────────────────
+
+enum KnowledgeCategory {
+  PROJECT
+  PRODUCT
+  CASE_STUDY
+  CLIENT_WIN
+  LESSON_LEARNED
+  SERVICE
+  PORTFOLIO_ITEM
+  FAQ
+  WRITING_STYLE_NOTE
+  BRAND_VOICE_NOTE
+  INDUSTRY
+  TARGET_CLIENT
+  EXPERIENCE
+  PREVIOUS_POST
+  IDEA
+}
+
+enum Pillar {
+  BUILD_IN_PUBLIC
+  CASE_STUDY
+  TECHNICAL_INSIGHT
+  FOUNDER_STORY
+  LESSON_LEARNED
+  EDUCATIONAL
+  MARKETING_BUSINESS_GROWTH
+}
+
+model KnowledgeItem {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId     String            @db.Uuid
+  owner       User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  category    KnowledgeCategory
+  title       String
+  body        String            // markdown source of truth
+  tags        String[]          @default([])
+  pillarHints Pillar[]          @default([])
+
+  sourceUrl   String?           // optional link to original artifact (proposal doc, etc.)
+  archived    Boolean           @default(false)
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  chunks      KnowledgeChunk[]
+
+  @@index([ownerId, category])
+  @@index([ownerId, archived])
+  @@map("knowledge_items")
+}
+
+model KnowledgeChunk {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  knowledgeItemId String        @db.Uuid
+  knowledgeItem   KnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Cascade)
+
+  ordinal         Int           // position within the parent item
+  content         String
+  embedding       Unsupported("vector(768)")? // bge-base-en-v1.5 = 768 dims
+  embeddingModel  String?       // e.g. "BAAI/bge-base-en-v1.5"
+  embeddingStatus String        @default("pending") // pending | ready | failed
+
+  createdAt       DateTime      @default(now())
+
+  @@index([knowledgeItemId])
+  @@index([embeddingStatus, createdAt])
+  @@map("knowledge_chunks")
 }

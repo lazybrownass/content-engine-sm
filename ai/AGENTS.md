@@ -15,9 +15,10 @@ Single-owner internal tool. One user, ever. Every "should this be configurable/m
 1. Next.js 16 App Router. Server Components by default. A file gets `"use client"` only when it needs state, effects, browser APIs, or event handlers — and only that file, not its parent tree. Push the client boundary as deep (as far from the root) as possible.
 2. Data mutations go through Server Actions, colocated in `features/<feature>/actions.ts`. Route Handlers (`app/api/**`) exist only for: external webhook receivers (n8n/Make/Playwright callbacks), the pipeline status/tick endpoints, and cron triggers. Never build a Route Handler as a substitute for a Server Action just because it feels more "API-like."
 3. Feature-based folders (`features/<name>/`). Cross-feature infrastructure only in `lib/`. A pipeline stage is one file in `features/pipeline/stages/`. Do not merge stages "for efficiency" — the whole point of the pipeline architecture (TRD §4) is that each stage is independently retryable, inspectable, and swappable.
-4. All AI model calls go through `lib/ai/model-router.ts`. Never import a provider SDK directly inside feature code. If a stage needs a different model, change its `prompt_templates` row, not the code.
-5. All publishing goes through the `PublishingProvider` interface (`features/publishing/providers/provider.interface.ts`). Never call an n8n/Make webhook URL directly from anywhere except that provider's own file.
+4. All AI model calls go through `lib/ai/model-router.ts`. Never import a provider SDK directly inside feature code. If a stage needs a different model, change its `prompt_templates` row, not the code. Exception: `lib/ai/embeddings.ts` and `lib/ai/rerank.ts` are fixed-model utilities (not swappable per-stage pipeline calls governed by `prompt_templates`) and call `lib/ai/providers/huggingface.ts` directly — that file is their equivalent single provider-SDK boundary. Feature code still never imports `lib/ai/providers/huggingface.ts` directly; it goes through `embeddings.ts`/`rerank.ts`.
+5. All publishing goes through the `PublishingProvider` interface (`features/publishing/providers/provider.interface.ts`). Never call an n8n/Make webhook URL directly from anywhere except that provider's own file. Outbound dispatch must be HMAC-SHA256 signed using the target `AutomationProvider.signingSecretRef`; inbound callback receivers (`app/api/webhooks/*`) must verify that signature with a constant-time comparison before trusting the payload, rejecting an unsigned or invalid-signature request with `401` (`docs/05-Backend-Schema.md` §10).
 6. Never call the official LinkedIn API for posting. This is a deliberate architectural decision (TRD §6), not an oversight — do not "fix" it.
+7. All media generation goes through the `MediaProvider` interface (`features/media/providers/media-provider.interface.ts`). Never call the Gemini or Higgsfield APIs directly outside that provider's own file — same reasoning as rule 4/5, additive not modifying when a new media provider is introduced.
 
 ### 3. SSR & Rendering Rules
 
@@ -66,6 +67,8 @@ Single-owner internal tool. One user, ever. Every "should this be configurable/m
 5. Model assignment per stage follows `docs/02-TRD.md` §5.2 by default. Changing a stage's model is a `prompt_templates` row update, never a code change, and should be justified (cost, latency, or quality reason) in the commit message if done outside routine experimentation.
 6. Never call a paid model provider automatically. A paid fallback is opt-in per stage, configured explicitly by the owner in Settings, and clearly cost-labeled in the UI.
 7. Grammar correction uses LanguageTool (rule-based), not an LLM call — do not "simplify" this into another LLM stage; the determinism is the point (`docs/02-TRD.md` §5.5).
+8. The Quality Review stage is the Grill self-critique loop: it scores every draft 0–100 against the banned-pattern list, tone/vocabulary match to the post's `DomainContext`, and structural fluff. A post cannot leave `GRILLING` status for `NEEDS_OWNER_REVIEW`-or-later while `Post.qualityScore` is unset. Below `Settings.minQualityScore` (default 85) triggers exactly one bounded revision cycle back through Writing/Humanization, tracked by `Post.grillCycles` — never an unbounded loop. Regardless of final score, the post always advances to owner review with the score visible; the loop never silently blocks a post indefinitely (`docs/01-PRD.md` FR-14).
+9. `DomainContext` vocabulary/tone/compliance notes are data-driven (`domain_contexts` table), read by the Writing/Humanization prompts at runtime. Never hardcode per-niche logic (e.g. `if (category === 'HEALTH') ...`) in application code — same principle as rule 5's banned-phrase list living in data, not a code constant.
 
 ### 9. Testing Rules
 
@@ -94,6 +97,8 @@ Single-owner internal tool. One user, ever. Every "should this be configurable/m
 - Never silently swallow a pipeline stage failure — it must be visible in the UI with the specific stage and error.
 - Never use `dangerouslySetInnerHTML` on unsanitized content.
 - Never edit files inside `docs/` or `ai/` to "match" code that contradicts them without first flagging the contradiction — these documents are the spec; deviations are decisions, not cleanup.
+- Never generate media (image or video) without an explicit, per-request owner confirmation and a visible cost estimate shown first — both Gemini Imagen 3 and Higgsfield dop-lite are paid-only providers with no free tier.
+- Never accept a webhook callback payload without verifying its HMAC signature first — an unsigned or invalid-signature request is rejected, never treated as a publish confirmation.
 
 ### 12. Things This Agent Must Always Do
 
@@ -105,6 +110,8 @@ Single-owner internal tool. One user, ever. Every "should this be configurable/m
 - Always commit after each completed, coherent unit of work using Conventional Commits, with no AI attribution.
 - Always run lint, typecheck, and the relevant test suite locally before pushing.
 - Always update the relevant `docs/*.md` file when an implementation decision changes what was documented.
+- Always route media generation through the `MediaProvider` interface and log its cost to `GeneratedMedia.costUsd` the same way `AiRun.costUsd` is logged for pipeline calls.
+- Always sign outbound webhook dispatches and verify inbound callback signatures with a constant-time comparison before acting on them.
 
 ### 13. Coding Philosophy
 
@@ -128,6 +135,8 @@ A task is done when: it satisfies the relevant functional requirement in `docs/0
 - [ ] Tests added: unit for logic, integration for DB-touching Server Actions, E2E for new user-facing flows
 - [ ] Commit messages are Conventional Commits, zero AI attribution
 - [ ] Relevant `docs/*.md` updated if implementation deviated from spec
+- [ ] Media generation (if touched) always requires explicit owner confirmation + visible cost, routed through `MediaProvider`
+- [ ] Webhook dispatch (if touched) is HMAC-signed; callback receivers verify signature with constant-time comparison before acting
 
 ### 16. Git Workflow
 
