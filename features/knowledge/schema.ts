@@ -22,7 +22,6 @@ export const queryKnowledgeItemsSchema = z.object({
   category: knowledgeCategorySchema.optional(),
   pillar: pillarSchema.optional(),
   archived: z.boolean().default(false),
-  search: z.string().trim().min(1).optional(),
   limit: z.number().int().positive().max(100).default(20),
   cursor: z.string().uuid().optional(),
 });

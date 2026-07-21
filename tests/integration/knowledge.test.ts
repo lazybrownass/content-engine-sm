@@ -179,7 +179,7 @@ describe("queries", () => {
       data: {
         ownerId: ownerC,
         category: "CASE_STUDY",
-        title: "How we improved uniquesearchterm123 latency",
+        title: "How we improved page load latency",
         body: "A case study.",
         pillarHints: ["CASE_STUDY"],
       },
@@ -208,11 +208,6 @@ describe("queries", () => {
   it("filters by pillar", async () => {
     const result = await getKnowledgeItems({ pillar: "TECHNICAL_INSIGHT" });
     expect(result.items.map((i) => i.id)).toEqual([seeded[1].id]);
-  });
-
-  it("filters by search term, case-insensitively", async () => {
-    const result = await getKnowledgeItems({ search: "UNIQUESEARCHTERM123" });
-    expect(result.items.map((i) => i.id)).toEqual([seeded[2].id]);
   });
 
   it("never returns another owner's items", async () => {

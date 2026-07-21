@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireOwner } from "@/lib/auth/require-owner";
 import { prisma } from "@/lib/db/prisma";
+import { searchKnowledge, type KnowledgeSearchResult } from "@/lib/knowledge/search";
 
 import { queryKnowledgeItemsSchema } from "./schema";
 
@@ -20,19 +21,13 @@ export async function getKnowledgeItems(
     throw new Error(formatZodError(parsed.error.issues));
   }
 
-  const { category, pillar, archived, search, limit, cursor } = parsed.data;
+  const { category, pillar, archived, limit, cursor } = parsed.data;
 
   const where: Prisma.KnowledgeItemWhereInput = {
     ownerId,
     archived,
     ...(category && { category }),
     ...(pillar && { pillarHints: { has: pillar } }),
-    ...(search && {
-      OR: [
-        { title: { contains: search, mode: "insensitive" } },
-        { body: { contains: search, mode: "insensitive" } },
-      ],
-    }),
   };
 
   const results = await prisma.knowledgeItem.findMany({
@@ -98,4 +93,39 @@ export async function getKnowledgeStats(): Promise<{
   }
 
   return { total, byCategory, byPillar };
+}
+
+export interface KnowledgeSearchItemResult {
+  item: KnowledgeItem;
+  matchedContent: string;
+  score: number;
+}
+
+export async function searchKnowledgeItems(
+  query: string,
+  limit = 10,
+): Promise<KnowledgeSearchItemResult[]> {
+  const ownerId = await requireOwner();
+
+  const chunkResults = await searchKnowledge({ ownerId, query, limit });
+
+  const bestPerItem = new Map<string, KnowledgeSearchResult>();
+  for (const result of chunkResults) {
+    const existing = bestPerItem.get(result.knowledgeItemId);
+    if (!existing || result.score > existing.score) {
+      bestPerItem.set(result.knowledgeItemId, result);
+    }
+  }
+  const ranked = [...bestPerItem.values()].sort((a, b) => b.score - a.score);
+  if (ranked.length === 0) return [];
+
+  const items = await prisma.knowledgeItem.findMany({
+    where: { id: { in: ranked.map((result) => result.knowledgeItemId) }, ownerId },
+  });
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+
+  return ranked.flatMap((result) => {
+    const item = itemsById.get(result.knowledgeItemId);
+    return item ? [{ item, matchedContent: result.content, score: result.score }] : [];
+  });
 }
