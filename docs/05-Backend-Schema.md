@@ -16,12 +16,16 @@ erDiagram
     USERS ||--o{ AUTOMATION_PROVIDERS : configures
     USERS ||--o{ PROMPT_TEMPLATES : owns
     USERS ||--o{ AUDIT_LOGS : generates
+    USERS ||--o{ DOMAIN_CONTEXTS : defines
 
     KNOWLEDGE_ITEMS ||--o{ KNOWLEDGE_CHUNKS : chunked_into
     TOPICS ||--o| POSTS : becomes
+    DOMAIN_CONTEXTS ||--o{ TOPICS : biases
+    DOMAIN_CONTEXTS ||--o{ POSTS : biases
     POSTS ||--o{ POST_VERSIONS : has
     POSTS ||--o{ PIPELINE_RUNS : processed_by
     POSTS ||--o| SCHEDULES : scheduled_via
+    POSTS ||--o{ GENERATED_MEDIA : illustrated_by
     SCHEDULES ||--o{ PUBLISHING_JOBS : dispatches
     AUTOMATION_PROVIDERS ||--o{ PUBLISHING_JOBS : executes
     POSTS ||--o{ ANALYTICS_SNAPSHOTS : measured_by
@@ -78,6 +82,15 @@ enum Pillar {
   MARKETING_BUSINESS_GROWTH
 }
 
+enum DomainCategory {
+  TECH
+  HEALTH
+  REAL_ESTATE
+  FINANCE
+  MARKETING
+  OTHER
+}
+
 enum TopicStatus {
   SUGGESTED
   ACCEPTED
@@ -93,7 +106,9 @@ enum RejectReasonCode {
 }
 
 enum PostStatus {
+  DRAFT               // topic accepted, pipeline not yet started
   PIPELINE_RUNNING
+  GRILLING            // Quality Review self-critique loop active (see PipelineStage.QUALITY_REVIEW)
   NEEDS_OWNER_REVIEW
   IN_EDIT
   APPROVED
@@ -159,6 +174,22 @@ enum AiRunStatus {
   RATE_LIMITED
 }
 
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum MediaProvider {
+  GEMINI_IMAGEN_3
+  HIGGSFIELD_DOP_LITE
+}
+
+enum MediaGenerationStatus {
+  PENDING
+  READY
+  FAILED
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // CORE
 // ─────────────────────────────────────────────────────────────────────────
@@ -173,6 +204,7 @@ model User {
   settings              Settings?
   styleMemoryProfile    StyleMemoryProfile?
   knowledgeItems        KnowledgeItem[]
+  domainContexts        DomainContext[]
   topics                Topic[]
   posts                 Post[]
   automationProviders   AutomationProvider[]
@@ -198,6 +230,7 @@ model Settings {
   defaultPostLength    String   @default("medium") // short | medium | long
   weeklyPostingGoalMin Int      @default(3)
   weeklyPostingGoalMax Int      @default(5)
+  minQualityScore      Int      @default(85) // Grill loop gate (PipelineStage.QUALITY_REVIEW); owner-tunable, never hardcoded
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -248,6 +281,32 @@ model KnowledgeChunk {
 
   @@index([knowledgeItemId])
   @@map("knowledge_chunks")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// DOMAIN CONTEXT
+// ─────────────────────────────────────────────────────────────────────────
+
+model DomainContext {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId          String          @db.Uuid
+  owner            User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  label            String          // free text, e.g. "Residential Real Estate — First-Time Buyers"
+  category         DomainCategory
+  vocabularyNotes  String?         // industry terms/jargon to use or avoid
+  toneNotes        String?         // e.g. Finance/Health skews more formal/cautious than Tech/Marketing
+  complianceNotes  String?         // e.g. required disclaimers for Health/Finance content
+  isDefault        Boolean         @default(false)
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  topics           Topic[]
+  posts            Post[]
+
+  @@index([ownerId, category])
+  @@map("domain_contexts")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -302,6 +361,8 @@ model Topic {
   title              String
   rationale          String
   pillar             Pillar
+  domainContextId    String?           @db.Uuid
+  domainContext      DomainContext?    @relation(fields: [domainContextId], references: [id], onDelete: SetNull)
   sourceKnowledgeIds String[]          @default([])
   score              Float?
   status             TopicStatus       @default(SUGGESTED)
@@ -330,11 +391,15 @@ model Post {
   topic          Topic?     @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
   pillar         Pillar
-  status         PostStatus @default(PIPELINE_RUNNING)
+  domainContextId String?   @db.Uuid
+  domainContext  DomainContext? @relation(fields: [domainContextId], references: [id], onDelete: SetNull)
+  status         PostStatus @default(DRAFT)
 
   finalText      String?
   ctaText        String?
   wordCount      Int?
+  qualityScore   Float?     // latest Grill (Quality Review) score, 0-100; history lives in post_versions
+  grillCycles    Int        @default(0) // bounded revision-cycle counter for the Grill loop
 
   archived       Boolean    @default(false)
 
@@ -347,6 +412,7 @@ model Post {
   analytics      AnalyticsSnapshot[]
   feedback       Feedback[]
   styleExamples  StyleMemoryExample[]
+  media          GeneratedMedia[]
 
   @@index([ownerId, status])
   @@index([ownerId, pillar])
@@ -391,6 +457,29 @@ model PipelineRun {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// GENERATED MEDIA
+// ─────────────────────────────────────────────────────────────────────────
+
+model GeneratedMedia {
+  id           String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId       String                 @db.Uuid
+  post         Post                   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  mediaType    MediaType
+  provider     MediaProvider
+  prompt       String
+  storageUrl   String?                // Supabase Storage object path; the row is metadata only, not the binary
+  costUsd      Decimal                @default(0) @db.Decimal(10, 6)
+  status       MediaGenerationStatus  @default(PENDING)
+  errorMessage String?
+
+  createdAt    DateTime               @default(now())
+
+  @@index([postId])
+  @@map("generated_media")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // SCHEDULING + PUBLISHING
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -421,6 +510,7 @@ model AutomationProvider {
   isActive     Boolean                @default(false)
   isDefault    Boolean                @default(false)
   configRef    String?                // reference key into secrets store; never raw secret here
+  signingSecretRef String?            // reference key into secrets store for HMAC-SHA256 dispatch signing/verification
   lastTestedAt DateTime?
   lastTestOk   Boolean?
 
@@ -630,6 +720,8 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE style_memory_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE style_memory_examples ENABLE ROW LEVEL SECURITY;
+ALTER TABLE domain_contexts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE generated_media ENABLE ROW LEVEL SECURITY;
 
 -- Example policy pattern, repeated per owner-scoped table
 CREATE POLICY "owner_full_access" ON knowledge_items
@@ -637,13 +729,28 @@ CREATE POLICY "owner_full_access" ON knowledge_items
   USING (owner_id = auth.uid())
   WITH CHECK (owner_id = auth.uid());
 
--- Tables without a direct owner_id column (e.g., post_versions, ai_runs) scope via join
+-- domain_contexts has a direct owner_id column, same pattern as knowledge_items
+CREATE POLICY "owner_full_access" ON domain_contexts
+  FOR ALL
+  USING (owner_id = auth.uid())
+  WITH CHECK (owner_id = auth.uid());
+
+-- Tables without a direct owner_id column (e.g., post_versions, ai_runs, generated_media) scope via join
 CREATE POLICY "owner_full_access" ON post_versions
   FOR ALL
   USING (
     EXISTS (
       SELECT 1 FROM posts p
       WHERE p.id = post_versions.post_id AND p.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "owner_full_access" ON generated_media
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM posts p
+      WHERE p.id = generated_media.post_id AND p.owner_id = auth.uid()
     )
   );
 
@@ -736,6 +843,9 @@ CREATE TRIGGER trg_refresh_recent_phrases
 - `Schedule.postId` is unique — a post has exactly one active schedule; rescheduling updates the existing row rather than creating a new one, preserving a clean 1:1 relationship.
 - `PromptTemplate` has a compound unique constraint `(ownerId, stage, version)` so template versioning is unambiguous and the "currently active" template per stage is resolved by `isActive = true` (application layer enforces exactly one active version per stage via a transaction, not a DB constraint, since Postgres partial unique indexes on a boolean are viable but add complexity disproportionate to a single-owner table).
 - `AiRun.costUsd` defaults to `0` and uses `Decimal(10,6)` — free-tier usage should always be `0`, but the column exists so an opted-in paid fallback (TRD §5.6) has an accurate cost trail from day one.
+- `GeneratedMedia.costUsd` uses the same `Decimal(10,6)` pattern as `AiRun.costUsd` — media generation is always paid (Gemini Imagen 3, Higgsfield dop-lite have no free tier), so this column is never expected to be `0` in practice, unlike `AiRun.costUsd`.
+- `GeneratedMedia.storageUrl` is a reference into Supabase Storage, not the binary itself — the row is metadata only. The bucket and its public/private access policy are an infrastructure detail owned by the implementing migration, not modeled in Prisma.
+- `Post.grillCycles` is bounded by application logic in the pipeline orchestrator (a fixed max, e.g. 1 bounded revision cycle per FR-14), not a DB constraint — same reasoning as `PromptTemplate`'s single-active-version rule above: a check constraint would be disproportionate complexity for a single-owner table where the orchestrator is the only writer.
 
 ### 9. Migration Strategy
 
@@ -744,3 +854,22 @@ CREATE TRIGGER trg_refresh_recent_phrases
 3. **Seed data:** `prisma/seed.ts` creates the single owner's `User`/`Settings`/`StyleMemoryProfile` rows and the default `PromptTemplate` (version 1) for every `PipelineStage`, so a fresh environment is immediately usable without manual setup.
 4. **No destructive migrations without a manual backup step documented in the PR** — given this is irreplaceable business knowledge (case studies, client wins), any migration that drops or truncates a table with owner data requires an explicit `pg_dump` backup command documented in the migration's accompanying notes, checked by the implementing agent before running `migrate deploy` in production.
 5. **Rollback:** Prisma migrations are forward-only by convention here; a rollback is a new migration that reverses the change, never an edit to an already-applied migration file (mutating applied migrations breaks the shadow-database diffing Prisma relies on).
+
+### 10. Notes on Webhook Signing
+
+`AutomationProvider.signingSecretRef` points to a per-provider HMAC-SHA256 secret in the secrets store (never the raw secret in the database, same convention as `configRef`). The publishing provider files (`n8n.provider.ts`, `make.provider.ts` — see `06-Implementation-Plan.md` §1) are the only code allowed to sign or verify with it, per `ai/AGENTS.md` §2.
+
+```typescript
+// Outbound dispatch — features/publishing/providers/n8n.provider.ts
+const signature = createHmac("sha256", signingSecret)
+  .update(JSON.stringify(payload))
+  .digest("hex");
+// sent as an `X-Signature` header alongside the webhook POST body
+
+// Inbound verification — app/api/webhooks/n8n/route.ts
+const expected = createHmac("sha256", signingSecret).update(rawBody).digest("hex");
+const valid = timingSafeEqual(Buffer.from(expected), Buffer.from(receivedSignature));
+if (!valid) return new Response("invalid signature", { status: 401 });
+```
+
+Verification always uses a constant-time comparison (`timingSafeEqual`), never `===` on the raw digest strings, to avoid a timing side-channel. A `PublishingJob` is only transitioned out of `DISPATCHED` by a callback whose signature verified — an unsigned or invalid-signature request is rejected with `401` and logged, never treated as a publish confirmation.

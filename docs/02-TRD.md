@@ -145,9 +145,9 @@ flowchart LR
     R --> O[Outline]
     O --> W[Writing]
     W --> H[Humanization]
-    H --> QR[Quality Review]
-    QR -->|fail| W
-    QR -->|pass| G[Grammar Pass]
+    H --> QR[Quality Review — Grill self-critique loop]
+    QR -->|qualityScore < minQualityScore, cycle available| W
+    QR -->|qualityScore >= minQualityScore OR cycles exhausted| G[Grammar Pass]
     G --> CTA[CTA Generation]
     CTA --> APPROVE[Owner Approval — gate]
     APPROVE --> SCHED[Scheduling]
@@ -169,7 +169,7 @@ flowchart LR
 | Outline | Structure: hook, narrative arc, proof point placement, CTA slot | Fact sheet | Ordered outline (sections + intent per section) | Reasoning-capable LLM |
 | Writing | First full draft prose | Outline + fact sheet + style memory | Draft text | General-purpose writing LLM |
 | Humanization | Rewrite to match the owner's actual voice; remove AI-pattern language | Draft + style memory profile + banned-phrase list | Humanized draft | General-purpose writing LLM, style-conditioned prompt |
-| Quality Review | Score against a rubric (specificity, AI-slop markers, hook strength, pillar fit); route back to Writing on fail | Humanized draft + rubric | Score + structured feedback; pass/fail | Reasoning-capable LLM, structured output |
+| Quality Review ("Grill" loop, §4.1) | Score the draft 0–100 (`qualityScore`) against the banned-pattern list, DomainContext tone/vocabulary match, hook strength, and specificity; below `minQualityScore` (default 85) triggers exactly one bounded revision cycle back through Writing/Humanization | Humanized draft + rubric + `DomainContext` | `qualityScore` + structured feedback; always advances after the bound, pass or not | Reasoning-capable LLM, structured output |
 | Grammar | Deterministic grammar/spelling pass | Reviewed draft | Corrected draft + change list | LanguageTool (rule-based, not an LLM — see §5.5) |
 | CTA Generation | Propose 2–3 CTA variants matching post intent | Corrected draft | CTA options | Small/fast LLM |
 | Owner Approval | **Owner decision point** | Final draft + CTA options | Approved post | — (UI action) |
@@ -180,6 +180,15 @@ flowchart LR
 
 Each LLM-backed stage is implemented as its own versioned prompt template (`prompt_templates` table) so a stage's prompt can be iterated without touching code, and every invocation is logged to `ai_runs` for cost/latency/quality auditing (PRD FR-8).
 
+#### 4.1 Quality Review — The Grill Loop
+
+Quality Review is not a single pass/fail check — it is a bounded self-critique loop, referred to elsewhere in these docs as "Grill":
+
+- **Rubric.** The draft is scored against the banned-pattern list (§5.4), tone/vocabulary match to the post's `DomainContext` (05-Backend-Schema.md), hook strength, and specificity (no vague claims not traceable to the Research stage's fact sheet). The output is a single `qualityScore` (0–100), not just a boolean.
+- **Gate.** The score is compared against `Settings.minQualityScore` — a database field, not a hardcoded constant, defaulting to 85 but owner-tunable without a deploy (same principle as per-stage model configuration, FR-12). While this stage is active, `Post.status = GRILLING` (03-App-Flow.md §1.1).
+- **Bounded revision.** A score below the gate triggers exactly **one** revision cycle back through Writing → Humanization → Quality Review again, tracked by `Post.grillCycles`. This is a hard bound, not a retry-until-pass loop — an LLM judge is not guaranteed to converge, and an unbounded loop would silently stall the pipeline (PRD FR-14, risk table).
+- **Always surfaces.** Whether the gate is cleared on the first pass, after the one revision cycle, or never, the post always advances to `NEEDS_OWNER_REVIEW` with `qualityScore` and the specific rubric feedback visible. A low score is a visible signal for the owner, never a silent block.
+
 ### 5. AI Model Stack
 
 #### 5.1 Selection Principles
@@ -188,6 +197,7 @@ Each LLM-backed stage is implemented as its own versioned prompt template (`prom
 2. Match model size/capability to task difficulty — do not use a large reasoning model for a classification-grade task; it wastes free-tier quota and adds latency.
 3. Every stage's model is configurable at runtime via the `prompt_templates`/`model_config` tables, not hardcoded — this is FR-12 and is essential because free-model availability and quality shift often; the system must be able to swap models without a redeploy.
 4. Prefer models with permissive licenses (Apache 2.0 / MIT) to avoid any future ambiguity about commercial use of generated content.
+5. Media generation (§5.8) is the deliberate, explicit exception to principle 1 — Gemini Imagen 3 and Higgsfield dop-lite have no free tier, so unlike every pipeline stage above, media generation is never on the default path; it is opt-in per generation with cost shown before the call, never automatic.
 
 #### 5.2 Model Assignment by Stage
 
@@ -200,6 +210,8 @@ Each LLM-backed stage is implemented as its own versioned prompt template (`prom
 | Knowledge embeddings | **BAAI/bge-base-en-v1.5** | Sentence-transformers family, MIT | Strong retrieval quality for its size relative to `all-MiniLM-L6-v2`; still small/cheap enough to run per-item on write. Fallback to `all-MiniLM-L6-v2` if latency becomes an issue at scale | <500ms per chunk |
 | Reranking retrieved knowledge | **cross-encoder/ms-marco-MiniLM-L-6-v2** | Sentence-transformers cross-encoder, Apache 2.0 | Reranking the top ~20 embedding-similarity candidates down to the top ~5 meaningfully improves what actually reaches the Writing stage, at negligible extra latency because it only scores a short list | <1s for top-20 |
 | Style-drift summarization (periodic, not per-post) | **Qwen3-8B-Instruct** | Qwen, Apache 2.0 | Lightweight periodic job (weekly), not on the critical path of a single post | 2–5s |
+| Media Generation — Images/Diagrams (§5.8, opt-in) | **Google Gemini (Imagen 3)** | Google, proprietary API | Purpose-built high-quality image/diagram generation at a cost-efficient ~$0.03/generation; owner-initiated only, never on the default free-tier path | ~5–15s, ~$0.03/generation |
+| Media Generation — Short Video Clips (§5.8, opt-in) | **Higgsfield AI (dop-lite)** | Higgsfield, proprietary API | Purpose-built short-form video generation tuned for social content at ~$0.13/generation, far cheaper than general-purpose video models | ~30–90s, ~$0.13/generation |
 
 Model identifiers above name current-generation open-weight families as of this document's writing; because open-weight model releases move quickly, §5.6 defines how the system keeps this current without a rewrite.
 
@@ -264,6 +276,23 @@ Long-running, multi-stage generation cannot happen inside a single Server Action
 
 This queue-via-Postgres approach avoids standing up Redis/a dedicated job runner (again: proportional engineering for one user) while still being resumable and observable.
 
+#### 5.8 Media Generation Providers
+
+Optional, per-post media generation (PRD FR-15/§7.10) sits behind its own interface, mirroring the `PublishingProvider` pattern in §6 exactly:
+
+```typescript
+interface MediaProvider {
+  readonly id: string; // "gemini-imagen-3" | "higgsfield-dop-lite" | future
+  readonly mediaType: "IMAGE" | "VIDEO";
+  estimateCost(input: MediaGenerationInput): Promise<number>; // USD, shown to the owner before confirm
+  generate(input: MediaGenerationInput): Promise<GeneratedMediaResult>;
+}
+```
+
+- One implementation per provider (`gemini-imagen.provider.ts`, `higgsfield.provider.ts`, per `06-Implementation-Plan.md` §1). Nothing outside a provider's own file calls the Gemini or Higgsfield SDK directly (`ai/AGENTS.md`).
+- `estimateCost()` is always called and its result shown to the owner before `generate()` can be invoked — there is no code path that calls `generate()` without an explicit, cost-aware owner confirmation immediately prior (03-App-Flow.md §6.1).
+- A successful or failed generation persists to `GeneratedMedia` (`05-Backend-Schema.md`): `storageUrl` (Supabase Storage reference, not the binary), `costUsd`, and `status` (`PENDING` → `READY`/`FAILED`).
+
 ### 6. Publishing Adapter Architecture
 
 LinkedIn's official API does not support posting on behalf of a personal member account without a restrictive partner program most individuals cannot access. The system therefore treats "getting a post onto LinkedIn" as an external, swappable concern behind a single interface:
@@ -287,7 +316,19 @@ interface PublishingProvider {
 
 Adding a fifth provider (e.g., a future Unipile-based managed API, which offers LinkedIn access through a compliant managed service rather than the restrictive official Marketing API) requires only a new class implementing `PublishingProvider` and a config row in `automation_providers` — no changes to `posts`, `schedules`, or any Server Action.
 
-Credentials (n8n/Make webhook URLs with secrets, Playwright session cookies) are never stored in the application database in plaintext — they are stored as references to entries in Vercel/Supabase environment secrets or a dedicated encrypted `secrets` table (application-layer encryption, key from environment) if per-provider runtime configuration is needed beyond static env vars.
+Every n8n/Make webhook dispatch is HMAC-SHA256 signed before it leaves this system (§6.1) — this signed-webhook model, not a public API integration, is what lets the owner's own automation post to LinkedIn without needing official partner-program approval.
+
+Credentials (n8n/Make webhook URLs with secrets, Playwright session cookies) are never stored in the application database in plaintext — they are stored as references to entries in Vercel/Supabase environment secrets or a dedicated encrypted `secrets` table (application-layer encryption, key from environment) if per-provider runtime configuration is needed beyond static env vars. The HMAC signing secret for each provider is stored the same way, referenced via `AutomationProvider.signingSecretRef` (`05-Backend-Schema.md` §2), never the raw secret in a table.
+
+#### 6.1 Webhook Signature Verification
+
+Publishing has no official API to authenticate against — the entire trust model rests on the owner's own webhook being the only thing that can move a `PublishingJob` forward. Without signing, anyone who discovers a callback URL could POST a fabricated "success" and falsely mark a post `published`. HMAC-SHA256 closes that gap:
+
+- **Dispatch:** the payload is signed with the target `AutomationProvider.signingSecretRef` secret and sent as an `X-Signature` header alongside the webhook POST body.
+- **Verification:** the callback receiver (`app/api/webhooks/n8n/route.ts`, `app/api/webhooks/make/route.ts`) recomputes the signature over the raw request body and compares it to the incoming `X-Signature` using a constant-time comparison (never `===` on raw strings, to avoid a timing side-channel).
+- **Rejection:** a missing or invalid signature is rejected with `401` and written to `audit_logs` — it is never treated as a publish confirmation, and never transitions a `PublishingJob` out of `DISPATCHED`.
+
+The exact signing/verification code is documented once, in `05-Backend-Schema.md` §10, rather than duplicated here.
 
 ### 7. Security
 
@@ -296,7 +337,7 @@ Credentials (n8n/Make webhook URLs with secrets, Playwright session cookies) are
 | AuthN | Supabase Auth (GitHub/Google/Email); session cookies, HTTP-only, secure |
 | AuthZ | Postgres RLS on every table keyed to `owner_id = auth.uid()`; owner allow-list checked in middleware in addition to RLS (defense in depth) |
 | Secrets | Environment variables via Vercel encrypted project settings; never in the repo, never in the database in plaintext; `.env.example` documents required keys with no real values |
-| CSRF | Server Actions have built-in Next.js CSRF protection (origin checking); Route Handlers receiving external webhooks (n8n/Make/Playwright callbacks) are authenticated via a shared-secret header, not cookies |
+| CSRF | Server Actions have built-in Next.js CSRF protection (origin checking); Route Handlers receiving external webhooks (n8n/Make callbacks) are authenticated via HMAC-SHA256 signature verification (§6.1), constant-time compared — never a plain shared-secret header or cookies. Playwright callbacks are internal to the self-hosted worker and use a separate service-level check. |
 | XSS | React's default escaping; rich-text editor content sanitized on write (DOMPurify or equivalent) before persisting and before any `dangerouslySetInnerHTML` usage, which should be avoided entirely if feasible |
 | SQL injection | Prisma parameterizes all queries by default; raw SQL (needed for pgvector similarity search) uses parameterized `$queryRaw` exclusively, never string concatenation |
 | Rate limiting | Route Handlers accepting external webhooks are rate-limited (e.g., Upstash Redis free tier or an in-Postgres token-bucket table) to prevent abuse of publicly reachable endpoints |

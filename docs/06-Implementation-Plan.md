@@ -54,6 +54,10 @@ Version 1.0 · Phased build order, folder structure, standards, CI/CD, testing
 │   │   ├── actions.ts                # Server Actions
 │   │   ├── queries.ts                # read-only data access
 │   │   └── schema.ts                 # Zod schemas
+│   ├── domain-context/
+│   │   ├── components/
+│   │   ├── actions.ts
+│   │   └── schema.ts
 │   ├── topics/
 │   ├── posts/
 │   ├── pipeline/
@@ -64,6 +68,12 @@ Version 1.0 · Phased build order, folder structure, standards, CI/CD, testing
 │   │   │   └── cta-generation.ts
 │   │   ├── orchestrator.ts
 │   │   └── types.ts
+│   ├── media/
+│   │   ├── providers/
+│   │   │   ├── gemini-imagen.provider.ts
+│   │   │   ├── higgsfield.provider.ts
+│   │   │   └── media-provider.interface.ts
+│   │   └── actions.ts
 │   ├── publishing/
 │   │   ├── providers/
 │   │   │   ├── n8n.provider.ts
@@ -190,16 +200,18 @@ Each phase is small enough to ship and verify independently. Commit after every 
 
 | Task | Deliverable |
 |---|---|
+| Extend `schema.prisma`: `DomainContext`, `GeneratedMedia`, `Post.qualityScore`/`grillCycles`/`domainContextId`, `Topic.domainContextId`, `Settings.minQualityScore`, `PostStatus` additions (`DRAFT`, `GRILLING`) | `prisma/migrations/000X_domain_media_grill` |
 | `lib/ai/model-router.ts` + HF provider adapter + secondary fallback provider | Model routing layer |
 | `prompt_templates` seed data for all 12 stages | `prisma/seed.ts` |
 | One module per stage under `features/pipeline/stages/*`, each with typed input/output per 02-TRD.md §4 | Stage implementations |
-| `pipeline_runs` + `ai_runs` tables, orchestrator that advances one stage per `tick` | `features/pipeline/orchestrator.ts`, `/api/pipeline-runs/[id]/tick` |
+| `quality-review.ts` implements the Grill self-critique loop: score the draft 0–100 against the banned-pattern list + `DomainContext` tone/vocabulary match, write `Post.qualityScore`; below `Settings.minQualityScore` triggers exactly one bounded revision cycle back through Writing/Humanization (`Post.grillCycles` tracks the attempt), then always advances regardless of final score | `features/pipeline/stages/quality-review.ts` |
+| `pipeline_runs` + `ai_runs` tables, orchestrator that advances one stage per `tick` and sets `Post.status = GRILLING` while the Quality Review loop is active | `features/pipeline/orchestrator.ts`, `/api/pipeline-runs/[id]/tick` |
 | Vercel Cron wired to tick in-progress runs every minute | `vercel.json` cron config |
 | Pipeline Stage Viewer component (04-UI-UX-Design-Brief.md §8) | `/posts/[id]` stage UI |
 | Retry/backoff + fallback provider wiring per 02-TRD.md §5.6 | Resilience logic |
 
-**Acceptance criteria:** a manually created `Topic` row, when accepted, produces a fully drafted, humanized, grammar-checked post with a CTA — without manual intervention — and every stage's output is inspectable in the UI.
-**Testing:** integration test per stage (given a fixed input, mock the model call, assert output shape); one full end-to-end pipeline test with all model calls mocked to deterministic fixtures (real model output is non-deterministic and unsuitable for CI assertions — see §6).
+**Acceptance criteria:** a manually created `Topic` row, when accepted, produces a fully drafted, humanized, grammar-checked post with a CTA — without manual intervention — and every stage's output is inspectable in the UI. A draft scoring below `minQualityScore` triggers exactly one bounded revision cycle, never an unbounded loop, and the post always reaches `NEEDS_OWNER_REVIEW` with `qualityScore` visible regardless of outcome.
+**Testing:** integration test per stage (given a fixed input, mock the model call, assert output shape); one full end-to-end pipeline test with all model calls mocked to deterministic fixtures (real model output is non-deterministic and unsuitable for CI assertions — see §6); a dedicated test asserting the Grill loop stops after its bounded cycle count even when the mocked score never clears the threshold.
 **Risks:** a stage silently producing malformed structured output (LLMs are not perfectly reliable at strict JSON) — mitigate with Zod validation on every stage output and automatic single retry with a stricter "return valid JSON only" instruction on validation failure.
 **Definition of Done:** pipeline runs are resumable after a server restart (state lives in Postgres, not memory) and every failure mode surfaces a specific, actionable error in the UI.
 
@@ -209,14 +221,16 @@ Each phase is small enough to ship and verify independently. Commit after every 
 
 | Task | Deliverable |
 |---|---|
-| Topic generation flow (`/topics/generate`) invoking Knowledge Retrieval → Content Opportunity Scoring as a `pipeline_run` with `purpose = topic_generation` | Topic suggestion UI |
+| `features/domain-context/` CRUD (create/edit/archive Domain Contexts: category, label, vocabulary/tone/compliance notes, default flag) | `/settings/domain-context` |
+| Topic generation flow (`/topics/generate`) invoking Knowledge Retrieval → Content Opportunity Scoring as a `pipeline_run` with `purpose = topic_generation`, reading the selected/default `DomainContext` to bias vocabulary and angle | Topic suggestion UI |
 | Accept/reject/edit topic actions, 90-day suppression on reject | `features/topics/actions.ts` |
 | Rich-text editor (client island) with inline AI actions (rewrite selection, shorten, change hook) as scoped model calls | `/posts/[id]/edit` |
+| `features/media/` — opt-in media generation button on a post: `MediaProvider` interface + `gemini-imagen.provider.ts` (images/diagrams, ~$0.03/generation) + `higgsfield.provider.ts` (short video clips, ~$0.13/generation); cost shown and explicitly confirmed before any call, cost written to `GeneratedMedia.costUsd` | `/posts/[id]/edit` media panel |
 | Repeated-phrase check against `recent_post_phrases` materialized view | Editor warning banner |
 | Approve / approve-with-edit-diff / reject flow, writing to `feedback` | Approval gate |
 
-**Acceptance criteria:** owner can go from "click Generate" to an approved, edited post in under 10 minutes of active time (PRD success metric), with every intermediate decision (accept topic, edit outline, approve) explicit and visible.
-**Testing:** E2E test covering the full happy path; unit tests for repeated-phrase similarity scoring.
+**Acceptance criteria:** owner can go from "click Generate" to an approved, edited post in under 10 minutes of active time (PRD success metric), with every intermediate decision (accept topic, edit outline, approve) explicit and visible. A post generated under a given `DomainContext` visibly reflects that domain's vocabulary/tone. No media generation call fires without an explicit owner click and a visible cost shown first.
+**Testing:** E2E test covering the full happy path; unit tests for repeated-phrase similarity scoring; integration test mocking both media providers (success and failure) and asserting `GeneratedMedia.costUsd`/`status` are recorded correctly.
 **Risks:** inline AI actions feel slow if each round-trips the full model stack — mitigate by routing inline actions to the fast Qwen3-8B tier, not the heavier Writing-stage model.
 **Definition of Done:** a real topic, generated from real knowledge, becomes a real approved post through this UI.
 
@@ -228,13 +242,13 @@ Each phase is small enough to ship and verify independently. Commit after every 
 |---|---|
 | `Schedule` + `PublishingJob` + `AutomationProvider` CRUD | `/schedule`, `/settings/publishing` |
 | `PublishingProvider` interface + `manual.provider.ts` | Manual provider (always available) |
-| `n8n.provider.ts` (webhook dispatch + signed callback receiver) | n8n integration |
-| `make.provider.ts` | Make integration |
+| `n8n.provider.ts` — HMAC-SHA256 signed webhook dispatch (`AutomationProvider.signingSecretRef`) + signature-verified callback receiver (`app/api/webhooks/n8n/route.ts`, constant-time compare, 401 on invalid/missing signature) | n8n integration |
+| `make.provider.ts` — same HMAC-SHA256 dispatch/verification pattern as `n8n.provider.ts` | Make integration |
 | Cron job dispatching due `publishing_jobs` | `/api/cron/dispatch-publishing` |
 | `publish_unconfirmed` timeout handling + owner confirmation UI | Recovery flow per 03-App-Flow.md §8 |
 
-**Acceptance criteria:** scheduling a post with the Manual provider produces a correctly timed reminder and a working copy-to-clipboard flow with zero external dependencies; the n8n provider successfully round-trips a real test payload.
-**Testing:** integration tests mocking webhook responses (success, timeout, non-2xx); manual verification of one real n8n publish before considering this phase done.
+**Acceptance criteria:** scheduling a post with the Manual provider produces a correctly timed reminder and a working copy-to-clipboard flow with zero external dependencies; the n8n provider successfully round-trips a real test payload with a valid signature; a callback with a missing or invalid signature is rejected with 401 and never transitions a `PublishingJob`.
+**Testing:** integration tests mocking webhook responses (success, timeout, non-2xx, invalid signature); manual verification of one real n8n publish before considering this phase done.
 **Risks:** webhook callback never arrives (network/config issue on the n8n side) — mitigated by the `publish_unconfirmed` state, never a false `published`.
 **Definition of Done:** owner has published at least one real post through this system end-to-end.
 
@@ -397,11 +411,11 @@ Behavior: every merge to `main` updates (or opens) a standing "Release PR" that 
 |---|---|
 | 0 — Bootstrap | 0.5–1 day |
 | 1 — Knowledge Base | 2–3 days |
-| 2 — AI Pipeline Core | 4–6 days (the largest phase — 12 stage implementations + orchestration + resilience) |
-| 3 — Topic Generation + Editor | 3–4 days |
+| 2 — AI Pipeline Core | 5–7 days (the largest phase — 12 stage implementations + orchestration + resilience + the Grill self-critique loop and domain/media schema) |
+| 3 — Topic Generation + Editor | 4–5 days (includes Domain Context CRUD and opt-in media generation) |
 | 4 — Scheduling + Publishing | 2–3 days |
 | 5 — Analytics + Learning Loop | 2–3 days |
 | 6 — Hardening | 1–2 days |
-| **Total** | **~15–22 working days** |
+| **Total** | **~17–24 working days** |
 
 Estimates assume the AI agent (Claude Code) does the bulk of implementation against these documents with the owner reviewing and directing, not the owner writing every line manually.
