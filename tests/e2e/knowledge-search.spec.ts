@@ -21,8 +21,12 @@ test.describe("authenticated search", () => {
 
     await expect(page).toHaveURL(new RegExp(`[?&]q=${query}`));
 
+    // /knowledge streams via loading.tsx: the initial navigation resolves fast with the
+    // skeleton shell, while the actual content (a real HuggingFace embedding + rerank round
+    // trip) streams in afterward — generously timed to cover real external API latency,
+    // including a possible cold start, not just local rendering.
     const heading = page.getByRole("heading", { name: /No results for/ });
-    await expect(heading).toBeVisible();
+    await expect(heading).toBeVisible({ timeout: 30_000 });
     await expect(heading).toContainText(query);
     await expect(page.getByRole("link", { name: "Clear search" })).toBeVisible();
   });
