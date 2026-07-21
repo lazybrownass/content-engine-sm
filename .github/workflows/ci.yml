@@ -84,6 +84,13 @@ jobs:
           GOTRUE_EXTERNAL_GITHUB_CLIENT_ID=ci-placeholder
           GOTRUE_EXTERNAL_GITHUB_SECRET=ci-placeholder
           EOF
+          # public.ecr.aws anonymous pulls are rate-limited and shared GitHub-hosted
+          # runner IPs hit that limit often — retry with backoff instead of failing outright.
+          for attempt in 1 2 3 4 5; do
+            docker compose --env-file .env -f docker-compose.yml pull db auth kong mailpit studio meta rest && break
+            echo "Pull attempt $attempt failed (likely an ECR rate limit), retrying in 20s..."
+            sleep 20
+          done
           docker compose --env-file .env -f docker-compose.yml up -d --wait db auth kong mailpit
       - run: npx prisma migrate deploy
       - run: npx playwright install --with-deps chromium
