@@ -16,6 +16,16 @@ vi.mock("@/lib/auth/require-owner", () => ({
   AuthError: class AuthError extends Error {},
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// after() throws when called outside a real Next request context, which is how these actions
+// are invoked here (direct function calls, no request scope) — mock it away like revalidatePath.
+vi.mock("next/server", () => ({ after: vi.fn() }));
+// The embedding pipeline makes real HuggingFace calls via lib/ai/embeddings; mock it out so
+// these tests only exercise the Server Action / Prisma path (per ai/AGENTS.md §9.3, never
+// assert on real model output in CI).
+vi.mock("@/lib/knowledge/embedding-pipeline", () => ({
+  chunkAndQueueKnowledgeItem: vi.fn(),
+  processPendingKnowledgeChunks: vi.fn(),
+}));
 
 const prisma = new PrismaClient();
 

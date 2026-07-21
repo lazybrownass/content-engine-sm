@@ -3,10 +3,15 @@
 import type { KnowledgeItem } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z, type ZodSafeParseResult } from "zod";
 
 import { AuthError, requireOwner } from "@/lib/auth/require-owner";
 import { prisma } from "@/lib/db/prisma";
+import {
+  chunkAndQueueKnowledgeItem,
+  processPendingKnowledgeChunks,
+} from "@/lib/knowledge/embedding-pipeline";
 
 import { createKnowledgeItemSchema, updateKnowledgeItemSchema } from "./schema";
 
@@ -52,6 +57,8 @@ export async function createKnowledgeItem(
     const item = await prisma.knowledgeItem.create({
       data: { ...parsed.data, ownerId },
     });
+    await chunkAndQueueKnowledgeItem(item.id, item.body);
+    after(() => processPendingKnowledgeChunks());
     revalidatePath("/knowledge");
     return { success: true, data: item };
   } catch (error) {
@@ -85,6 +92,8 @@ export async function updateKnowledgeItem(
       where: { id, ownerId },
       data: rest,
     });
+    await chunkAndQueueKnowledgeItem(item.id, item.body);
+    after(() => processPendingKnowledgeChunks());
     revalidatePath("/knowledge");
     revalidatePath(`/knowledge/${id}`);
     return { success: true, data: item };
@@ -170,6 +179,8 @@ export async function bulkImportKnowledgeItems(
     const created = await prisma.knowledgeItem.createManyAndReturn({
       data: toCreate,
     });
+    await Promise.all(created.map((item) => chunkAndQueueKnowledgeItem(item.id, item.body)));
+    after(() => processPendingKnowledgeChunks({ maxChunks: 50 }));
     revalidatePath("/knowledge");
     return { success: true, data: { created, rejected } };
   } catch (error) {
