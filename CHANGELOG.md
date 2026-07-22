@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.1.0...v1.2.0) (2026-07-22)
+
+
+### Features
+
+* **generate:** add /generate page with brand voice manager ([#10](https://github.com/lazybrownass/content-engine-sm/issues/10)) ([613261e](https://github.com/lazybrownass/content-engine-sm/commit/613261ee0917459f42be21e3e7a8ac750a143c07))
+* **generation:** add prompt synthesis engine and brand voice CRUD ([#8](https://github.com/lazybrownass/content-engine-sm/issues/8)) ([870f07f](https://github.com/lazybrownass/content-engine-sm/commit/870f07f6cb86f23129cbbc9eec4009231f47e56e))
+* **generation:** add streaming /api/generate route ([#9](https://github.com/lazybrownass/content-engine-sm/issues/9)) ([500b2d4](https://github.com/lazybrownass/content-engine-sm/commit/500b2d4c4751b9cc48531a16c2aa7a60f54e290d))
+* **schema:** add BrandVoice model with RLS ([#6](https://github.com/lazybrownass/content-engine-sm/issues/6)) ([1182add](https://github.com/lazybrownass/content-engine-sm/commit/1182add03c1e49f97588c752a44cf673dd347cc3))
+
 ## [1.1.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.0.0...v1.1.0) (2026-07-21)
 
 
