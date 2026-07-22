@@ -77,6 +77,11 @@ services:
       GOTRUE_SMTP_USER: ""
       GOTRUE_SMTP_PASS: ""
       GOTRUE_SMTP_SENDER_NAME: "LinkedIn Content Engine (local)"
+      # Mailpit is local-only (no real mail provider to protect), and Playwright's
+      # e2e specs each call loginAsOwner against the same OWNER_EMAIL — GoTrue's
+      # default 60s per-address cooldown between magic-link sends causes flaky
+      # failures across specs/retries in CI. Safe to relax here.
+      GOTRUE_SMTP_MAX_FREQUENCY: "1s"
       GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
       GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
       GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
