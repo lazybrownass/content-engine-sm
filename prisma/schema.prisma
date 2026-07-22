@@ -20,6 +20,7 @@ model User {
   settings       Settings?
   knowledgeItems KnowledgeItem[]
   brandVoices    BrandVoice[]
+  pipelineRuns   PipelineRun[]
 
   @@map("users")
 }
@@ -151,4 +152,81 @@ model BrandVoice {
 
   @@index([ownerId])
   @@map("brand_voices")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PIPELINE CORE (Phase 2, partial — scoped slice)
+//
+// A reduced, standalone slice of the full 12-stage pipeline documented in
+// docs/05-Backend-Schema.md: only OUTLINE -> DRAFT -> GRILL_REVIEW exist here.
+// PipelineRun uses a direct ownerId (not postId) because no Post/Topic model
+// exists yet — see docs/05-Backend-Schema.md's deviation note above the
+// aspirational PipelineRun/AiRun definitions. Not wired into any route or UI.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PipelineStage {
+  OUTLINE
+  DRAFT
+  GRILL_REVIEW
+}
+
+enum PipelineRunStatus {
+  QUEUED
+  RUNNING
+  PAUSED
+  FAILED
+  COMPLETED
+}
+
+enum AiRunStatus {
+  SUCCESS
+  FAILED
+  TIMEOUT
+  RATE_LIMITED
+}
+
+model PipelineRun {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  status       PipelineRunStatus @default(QUEUED)
+  currentStage PipelineStage?
+  retryCount   Int               @default(0)
+  lastError    String?
+
+  qualityScore Int?
+  grillCycles  Int    @default(0)
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  aiRuns AiRun[]
+
+  @@index([ownerId])
+  @@index([ownerId, status])
+  @@map("pipeline_runs")
+}
+
+model AiRun {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pipelineRunId String      @db.Uuid
+  pipelineRun   PipelineRun @relation(fields: [pipelineRunId], references: [id], onDelete: Cascade)
+
+  stage        PipelineStage
+  modelId      String
+  status       AiRunStatus
+  inputTokens  Int?
+  outputTokens Int?
+  latencyMs    Int?
+  costUsd      Decimal       @default(0) @db.Decimal(10, 6)
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([pipelineRunId])
+  @@index([stage, status])
+  @@map("ai_runs")
 }

@@ -235,6 +235,24 @@ Each phase is small enough to ship and verify independently. Commit after every 
 **Risks:** `@ai-sdk/huggingface`'s Inference-Providers routing doesn't guarantee native JSON-schema/tool-calling support per model — mitigated with `experimental_repairText` plus soft (`.describe()`, not hard `.max()`) length constraints on model-authored fields, and an explicit failure surfaced to the UI if recovery still fails.
 **Definition of Done:** same bar as other phases (§14) — lint/typecheck/tests pass, RLS present, docs (this section) match the shipped implementation.
 
+#### Phase 2 (continued) — Pipeline Core Foundation (partial, out-of-order continuation)
+
+**Objectives:** a standalone orchestrator running outline → draft → grill_review sequentially with full execution/token/latency observability, built ahead of the remaining 9 documented stages and their Post/DomainContext/tick/UI machinery. Explicitly out of sequence — recorded here per AGENTS.md §10.1.
+
+| Task | Deliverable |
+|---|---|
+| `PipelineRun`/`AiRun` schema (direct `ownerId`, 3-value `PipelineStage`), RLS in the same migration | `prisma/migrations/*_add_pipeline_core_schema` |
+| `lib/ai/model-router.ts` extended with `outline`/`draft`/`grill_review` purposes, backward compatible | `lib/ai/model-router.ts` |
+| Outline/draft/quality-review stage modules, one file each | `features/pipeline/stages/*.ts` |
+| Orchestrator sequencing stages, persisting `PipelineRun`/`AiRun`, one bounded Grill revision cycle | `features/pipeline/orchestrator.ts` |
+| Zod-validate-with-one-retry-then-fail on every stage call | `features/pipeline/run-stage.ts` |
+
+**Acceptance criteria:** given `ownerId`, `topic`, resolved `brandVoice`, and `knowledgeChunks`, `runPipeline()` executes outline → draft → grill_review, persists one `PipelineRun` row and one `AiRun` row per model call, triggers exactly one bounded revision cycle on a failing Grill score, and always reaches `COMPLETED` (or `FAILED` only for a genuine schema-validation exhaustion) regardless of final score. Standalone — not wired into `/generate` or `/api/generate`, which are untouched.
+**Testing:** unit tests for schema/prompt-building; integration tests for the orchestrator (happy path, one bounded revision, two-fail-still-terminates, malformed-JSON retry-then-fail/retry-then-succeed) with all model calls mocked via `MockLanguageModelV2`/`generateObject`; a cross-owner scoping test covering both `PipelineRun` and the `AiRun` join.
+**Risks:** the 3-value `PipelineStage` enum needs an additive migration when the remaining 9 stages are built — mitigated by reusing the same enum type/name as the full documented design, so extension is `ALTER TYPE ADD VALUE`, not a rename or data migration. Hardcoded `minQualityScore` needs to move to `Settings.minQualityScore` once that field exists.
+**Definition of Done:** same bar as other phases (§14) — lint/typecheck/tests pass, RLS present in the same migration, docs (this section + `docs/05-Backend-Schema.md`'s deviation note) match the shipped implementation.
+**Remaining for full Phase 2:** `KNOWLEDGE_RETRIEVAL`, `BUSINESS_CONTEXT_MERGE`, `TARGET_AUDIENCE_FRAMING`, `PAIN_POINT_MAPPING`, `CONTENT_OPPORTUNITY_SCORING`, `RESEARCH`, `HUMANIZATION`, `GRAMMAR`, `CTA_GENERATION` stages; `DomainContext`/`GeneratedMedia`/`Post`/`Topic`/`PromptTemplate` schema; `Settings.minQualityScore`; `PipelineRun.postId`/`purpose` reconciliation; `/api/pipeline-runs/[id]/tick` cron endpoint; Pipeline Stage Viewer UI; wiring the orchestrator into any real route/UI.
+
 #### Phase 3 — Topic Generation + Editor
 
 **Objectives:** close the loop from knowledge → topic suggestion → owner decision → editor.

@@ -469,7 +469,11 @@ model PostVersion {
   @@index([postId, stage])
   @@map("post_versions")
 }
+```
 
+**Implementation note (Phase 2, partial):** a scoped, standalone slice of this design has already been built — see `docs/06-Implementation-Plan.md`'s "Phase 2 (continued) — Pipeline Core Foundation" section. That implementation deviates from the shape below in these ways: `PipelineRun.ownerId` is a direct column (not `postId`), since no `Post`/`Topic` model exists yet; `AiRun` has no `promptTemplateId` (no `PromptTemplate` table yet) and is scoped via a one-hop join through `PipelineRun.ownerId`, not the two-hop `ai_runs → pipeline_runs → posts` path below; `PipelineStage` currently has only 3 values (`OUTLINE`, `DRAFT`, `GRILL_REVIEW`) rather than the full 12 listed below — an additive migration when the remaining stages are built; `qualityScore`/`grillCycles` live on `PipelineRun` rather than `Post`; `minQualityScore` is a hardcoded constant (`DEFAULT_MIN_QUALITY_SCORE = 85` in `features/pipeline/stages/quality-review.ts`), pending `Settings.minQualityScore`. The definitions below remain the target shape for full Phase 2.
+
+```prisma
 model PipelineRun {
   id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   postId      String?            @db.Uuid
