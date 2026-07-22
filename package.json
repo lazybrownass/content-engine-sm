@@ -16,6 +16,10 @@
   "simple-git-hooks": {
     "commit-msg": "npx --no -- commitlint --edit \"$1\""
   },
+  "overrides": {
+    "postcss": "8.5.18",
+    "sharp": "^0.35.0"
+  },
   "dependencies": {
     "@ai-sdk/huggingface": "^0.0.29",
     "@ai-sdk/react": "^2.0.220",
@@ -39,6 +43,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@commitlint/cli": "^21.2.1",
     "@commitlint/config-conventional": "^21.2.0",
     "@playwright/test": "^1.61.1",
