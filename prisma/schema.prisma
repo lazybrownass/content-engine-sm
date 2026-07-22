@@ -21,6 +21,8 @@ model User {
   knowledgeItems KnowledgeItem[]
   brandVoices    BrandVoice[]
   pipelineRuns   PipelineRun[]
+  topics         Topic[]
+  posts          Post[]
 
   @@map("users")
 }
@@ -155,19 +157,28 @@ model BrandVoice {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// PIPELINE CORE (Phase 2, partial — scoped slice)
+// PIPELINE CORE (Phase 2/3, partial — scoped slice)
 //
-// A reduced, standalone slice of the full 12-stage pipeline documented in
-// docs/05-Backend-Schema.md: only OUTLINE -> DRAFT -> GRILL_REVIEW exist here.
-// PipelineRun uses a direct ownerId (not postId) because no Post/Topic model
-// exists yet — see docs/05-Backend-Schema.md's deviation note above the
-// aspirational PipelineRun/AiRun definitions. Not wired into any route or UI.
+// A reduced slice of the full 12-stage pipeline documented in
+// docs/05-Backend-Schema.md: OUTLINE/DRAFT/GRILL_REVIEW (the Grill
+// self-critique loop) plus TOPIC_GENERATION and the three INLINE_* stages
+// added in Phase 3 (partial) for topic suggestions and in-editor AI actions.
+// PipelineRun.postId/topicId are optional — the original outline/draft/grill
+// loop predates Post/Topic and still runs standalone (no purpose field: the
+// combination of currentStage + postId/topicId disambiguates what a run is
+// for, see docs/05-Backend-Schema.md's deviation note). Not wired into a
+// user-facing route for OUTLINE/DRAFT/GRILL_REVIEW directly; TOPIC_GENERATION
+// and INLINE_* are invoked from features/topics and features/posts.
 // ─────────────────────────────────────────────────────────────────────────
 
 enum PipelineStage {
   OUTLINE
   DRAFT
   GRILL_REVIEW
+  TOPIC_GENERATION
+  INLINE_REWRITE
+  INLINE_SHORTEN
+  INLINE_CHANGE_HOOK
 }
 
 enum PipelineRunStatus {
@@ -190,6 +201,11 @@ model PipelineRun {
   ownerId String @db.Uuid
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
+  postId  String? @db.Uuid
+  post    Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  topicId String? @db.Uuid
+  topic   Topic?  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
   status       PipelineRunStatus @default(QUEUED)
   currentStage PipelineStage?
   retryCount   Int               @default(0)
@@ -207,6 +223,8 @@ model PipelineRun {
 
   @@index([ownerId])
   @@index([ownerId, status])
+  @@index([postId])
+  @@index([topicId])
   @@map("pipeline_runs")
 }
 
@@ -229,4 +247,83 @@ model AiRun {
   @@index([pipelineRunId])
   @@index([stage, status])
   @@map("ai_runs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TOPICS & POSTS (Phase 3, partial — scoped slice)
+//
+// A trimmed version of the aspirational Topic/Post models in
+// docs/05-Backend-Schema.md: no domainContextId (DomainContext deferred), no
+// media/versions/schedule/analytics/feedback/styleExamples relations (all
+// deferred models), no ctaText (CTA_GENERATION stage deferred), no separate
+// archived boolean on Post (status = ARCHIVED is the single source of
+// truth). TopicStatus drops EXPIRED and Post.status drops the
+// scheduling/publishing values and GRILLING/REJECTED — every remaining enum
+// value has a real code path this phase; both enums extend additively via
+// ALTER TYPE ... ADD VALUE when the deferred features are built, the same
+// way PipelineStage already grew from 3 to 7 values above. See
+// docs/05-Backend-Schema.md's "Implementation note (Phase 3, partial)".
+// ─────────────────────────────────────────────────────────────────────────
+
+enum TopicStatus {
+  SUGGESTED
+  ACCEPTED
+  REJECTED
+}
+
+enum PostStatus {
+  DRAFT
+  PIPELINE_RUNNING
+  NEEDS_OWNER_REVIEW
+  IN_EDIT
+  APPROVED
+  FAILED
+  ARCHIVED
+}
+
+model Topic {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId            String        @db.Uuid
+  owner              User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  title              String
+  rationale          String
+  pillar             Pillar
+  sourceKnowledgeIds String[]      @default([])
+  score              Float?
+  status             TopicStatus   @default(SUGGESTED)
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  post               Post?
+  pipelineRuns       PipelineRun[]
+
+  @@index([ownerId, status])
+  @@map("topics")
+}
+
+model Post {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId      String        @db.Uuid
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  topicId      String?       @unique @db.Uuid
+  topic        Topic?        @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  pillar       Pillar
+  status       PostStatus    @default(DRAFT)
+
+  finalText    String?
+  wordCount    Int?
+  qualityScore Int?
+  grillCycles  Int           @default(0)
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  pipelineRuns PipelineRun[]
+
+  @@index([ownerId, status])
+  @@index([ownerId, pillar])
+  @@map("posts")
 }
