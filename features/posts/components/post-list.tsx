@@ -66,7 +66,7 @@ export function PostList({
             >
               <Link href={`/posts/${post.id}/edit`} className="flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-medium">{post.topic?.title ?? "Untitled post"}</h3>
+                  <h2 className="font-medium">{post.topic?.title ?? "Untitled post"}</h2>
                   <div className="flex shrink-0 gap-1">
                     {post.qualityScore != null && (
                       <Badge variant="secondary">{post.qualityScore}/100</Badge>
