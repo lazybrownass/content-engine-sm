@@ -27,6 +27,9 @@ export default async function AppLayout({
           <Link href="/knowledge" className="hover:underline">
             Knowledge
           </Link>
+          <Link href="/topics" className="hover:underline">
+            Topics
+          </Link>
         </nav>
       </header>
       <main className="flex-1 p-6">{children}</main>
