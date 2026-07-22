@@ -35,8 +35,11 @@ It's a single-owner internal tool — built for exactly one person to run their 
 | 2.5 — Brand Voice + On-Demand Generation | Voice profiles, streaming `/generate` (LinkedIn + X thread + hook) |
 | 2 (partial) — Pipeline Core | Outline → Draft → Grill self-critique loop, full AiRun observability, opt-in local Ollama provider |
 | 3 (partial) — Topics & Studio Editor | AI topic suggestions from knowledge gaps, accept-to-draft pipeline, studio editor with inline rewrite/shorten/change-hook and Regenerate |
+| 4 (partial) — Scheduling & Publishing | `/schedule` week/month calendar, Manual/n8n/Make providers with HMAC-SHA256 signed webhooks, cron dispatch + `publish_unconfirmed` timeout recovery |
 
-Deferred, tracked, not forgotten: Domain Contexts, media generation (images/video), scheduling & publishing, analytics, and a handful of pipeline stages (research, humanization, CTA generation, and others) — see `docs/06-Implementation-Plan.md` for the full roadmap and every documented deviation from the original spec.
+Deferred, tracked, not forgotten: Domain Contexts, media generation (images/video), a Playwright browser-automation publishing provider, analytics, and a handful of pipeline stages (research, humanization, CTA generation, and others) — see `docs/06-Implementation-Plan.md` for the full roadmap and every documented deviation from the original spec.
+
+**Before considering Phase 4 fully done:** the n8n and Make providers are covered by integration tests with a mocked webhook endpoint, but a real signed round-trip against an actual n8n/Make workflow — receiving the signed payload and calling back to `/api/webhooks/n8n` or `/api/webhooks/make` — has not yet been verified manually and should be before relying on it for a real scheduled post.
 
 ## Prerequisites
 

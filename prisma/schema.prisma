@@ -17,12 +17,13 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  settings       Settings?
-  knowledgeItems KnowledgeItem[]
-  brandVoices    BrandVoice[]
-  pipelineRuns   PipelineRun[]
-  topics         Topic[]
-  posts          Post[]
+  settings            Settings?
+  knowledgeItems      KnowledgeItem[]
+  brandVoices         BrandVoice[]
+  pipelineRuns        PipelineRun[]
+  topics              Topic[]
+  posts               Post[]
+  automationProviders AutomationProvider[]
 
   @@map("users")
 }
@@ -83,23 +84,23 @@ enum Pillar {
 }
 
 model KnowledgeItem {
-  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ownerId     String            @db.Uuid
-  owner       User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   category    KnowledgeCategory
   title       String
-  body        String            // markdown source of truth
+  body        String // markdown source of truth
   tags        String[]          @default([])
   pillarHints Pillar[]          @default([])
 
-  sourceUrl   String?           // optional link to original artifact (proposal doc, etc.)
-  archived    Boolean           @default(false)
+  sourceUrl String? // optional link to original artifact (proposal doc, etc.)
+  archived  Boolean @default(false)
 
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  chunks      KnowledgeChunk[]
+  chunks KnowledgeChunk[]
 
   @@index([ownerId, category])
   @@index([ownerId, archived])
@@ -111,13 +112,13 @@ model KnowledgeChunk {
   knowledgeItemId String        @db.Uuid
   knowledgeItem   KnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Cascade)
 
-  ordinal         Int           // position within the parent item
+  ordinal         Int // position within the parent item
   content         String
   embedding       Unsupported("vector(768)")? // bge-base-en-v1.5 = 768 dims
-  embeddingModel  String?       // e.g. "BAAI/bge-base-en-v1.5"
-  embeddingStatus String        @default("pending") // pending | ready | failed
+  embeddingModel  String? // e.g. "BAAI/bge-base-en-v1.5"
+  embeddingStatus String                      @default("pending") // pending | ready | failed
 
-  createdAt       DateTime      @default(now())
+  createdAt DateTime @default(now())
 
   @@index([knowledgeItemId])
   @@index([embeddingStatus, createdAt])
@@ -212,7 +213,7 @@ model PipelineRun {
   lastError    String?
 
   qualityScore Int?
-  grillCycles  Int    @default(0)
+  grillCycles  Int  @default(0)
 
   startedAt   DateTime?
   completedAt DateTime?
@@ -277,53 +278,155 @@ enum PostStatus {
   NEEDS_OWNER_REVIEW
   IN_EDIT
   APPROVED
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  PUBLISH_UNCONFIRMED
   FAILED
   ARCHIVED
 }
 
 model Topic {
-  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ownerId            String        @db.Uuid
-  owner              User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   title              String
   rationale          String
   pillar             Pillar
-  sourceKnowledgeIds String[]      @default([])
+  sourceKnowledgeIds String[]    @default([])
   score              Float?
-  status             TopicStatus   @default(SUGGESTED)
+  status             TopicStatus @default(SUGGESTED)
 
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  post               Post?
-  pipelineRuns       PipelineRun[]
+  post         Post?
+  pipelineRuns PipelineRun[]
 
   @@index([ownerId, status])
   @@map("topics")
 }
 
 model Post {
-  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ownerId      String        @db.Uuid
-  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  topicId      String?       @unique @db.Uuid
-  topic        Topic?        @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  id      String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String  @db.Uuid
+  owner   User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  topicId String? @unique @db.Uuid
+  topic   Topic?  @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
-  pillar       Pillar
-  status       PostStatus    @default(DRAFT)
+  pillar Pillar
+  status PostStatus @default(DRAFT)
 
   finalText    String?
   wordCount    Int?
   qualityScore Int?
-  grillCycles  Int           @default(0)
+  grillCycles  Int     @default(0)
 
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   pipelineRuns PipelineRun[]
+  schedule     Schedule?
 
   @@index([ownerId, status])
   @@index([ownerId, pillar])
   @@map("posts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SCHEDULING & PUBLISHING (Phase 4, partial — scoped slice)
+//
+// A reduced slice of the full docs/05-Backend-Schema.md design: three
+// providers (MANUAL, N8N, MAKE) — PLAYWRIGHT is deferred (no browser-worker
+// infra exists yet). AutomationProvider.configRef holds the literal webhook
+// URL (not secret); signingSecretRef holds the *name* of an env var holding
+// the real HMAC secret (e.g. "N8N_SIGNING_SECRET"), not a secrets-vault
+// reference — this repo's existing "secrets store" is env vars (see
+// HUGGINGFACE_API_TOKEN), and a real vault integration is out of scope.
+// Schedule/PublishingJob have no direct ownerId column; ownership is proven
+// via a join (Schedule -> Post.ownerId, PublishingJob -> AutomationProvider.
+// ownerId), the same reasoning already used for ai_runs -> pipeline_runs
+// above — low-volume, solo-owner tables where a join costs nothing.
+// PostStatus gains SCHEDULED/PUBLISHING/PUBLISHED/PUBLISH_UNCONFIRMED only —
+// GRILLING and REJECTED remain out of scope (see Phase 3's deviation note
+// above). Deferred entirely this phase: full AutomationProvider CRUD UI
+// (a minimal embedded create/test-ping form stands in for it), DomainContext,
+// GeneratedMedia, PostVersion, Playwright provider/adapter, publish analytics.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PublishingProviderType {
+  MANUAL
+  N8N
+  MAKE
+}
+
+enum PublishingJobStatus {
+  SCHEDULED
+  DISPATCHED
+  PUBLISHED
+  PUBLISH_UNCONFIRMED
+  FAILED
+  CANCELLED
+}
+
+model Schedule {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId String @unique @db.Uuid
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  scheduledAt DateTime
+  timezone    String   @default("UTC")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs PublishingJob[]
+
+  @@index([scheduledAt])
+  @@map("schedules")
+}
+
+model AutomationProvider {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  type             PublishingProviderType
+  label            String
+  isActive         Boolean                @default(false)
+  isDefault        Boolean                @default(false)
+  configRef        String?
+  signingSecretRef String?
+  lastTestedAt     DateTime?
+  lastTestOk       Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs PublishingJob[]
+
+  @@index([ownerId, type])
+  @@map("automation_providers")
+}
+
+model PublishingJob {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduleId           String             @db.Uuid
+  schedule             Schedule           @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  automationProviderId String             @db.Uuid
+  automationProvider   AutomationProvider @relation(fields: [automationProviderId], references: [id])
+
+  status       PublishingJobStatus @default(SCHEDULED)
+  dispatchedAt DateTime?
+  confirmedAt  DateTime?
+  linkedinUrl  String?
+  errorMessage String?
+  attempt      Int                 @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("publishing_jobs")
 }

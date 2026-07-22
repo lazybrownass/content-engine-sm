@@ -64,6 +64,10 @@ jobs:
       # call) per ai/AGENTS.md 9.3 — the knowledge-search e2e test is unaffected, since this
       # only swaps the generation model-router branch, not embeddings/reranking.
       E2E_MOCK_LLM: "1"
+      # Lets tests/e2e/schedule.spec.ts authenticate its cron-dispatch call the same way
+      # app/api/cron/dispatch-publishing/route.ts verifies it — a CI-only fixed value, never
+      # used against a real deployment.
+      CRON_SECRET: "ci-only-cron-secret-not-used-in-production"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
