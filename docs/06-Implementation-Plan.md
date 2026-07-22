@@ -253,6 +253,25 @@ Each phase is small enough to ship and verify independently. Commit after every 
 **Definition of Done:** same bar as other phases (§14) — lint/typecheck/tests pass, RLS present in the same migration, docs (this section + `docs/05-Backend-Schema.md`'s deviation note) match the shipped implementation.
 **Remaining for full Phase 2:** `KNOWLEDGE_RETRIEVAL`, `BUSINESS_CONTEXT_MERGE`, `TARGET_AUDIENCE_FRAMING`, `PAIN_POINT_MAPPING`, `CONTENT_OPPORTUNITY_SCORING`, `RESEARCH`, `HUMANIZATION`, `GRAMMAR`, `CTA_GENERATION` stages; `DomainContext`/`GeneratedMedia`/`Post`/`Topic`/`PromptTemplate` schema; `Settings.minQualityScore`; `PipelineRun.postId`/`purpose` reconciliation; `/api/pipeline-runs/[id]/tick` cron endpoint; Pipeline Stage Viewer UI; wiring the orchestrator into any real route/UI.
 
+#### Phase 2 (continued) — Local Model Execution (Ollama Fallback) (partial, out-of-order continuation)
+
+**Objectives:** an explicit, opt-in local-model execution path for `lib/ai/model-router.ts`, using
+Ollama's OpenAI-compatible endpoint as a free, zero-network-dependency alternative to the Hugging
+Face Inference provider — the "secondary fallback provider" deliverable the original Phase 2 table
+always listed. Explicitly out of sequence — recorded here per AGENTS.md §10.1.
+
+| Task | Deliverable |
+|---|---|
+| `@ai-sdk/openai-compatible` promoted to a direct dependency (already present transitively, same resolved version) | `package.json` |
+| `lib/ai/model-router.ts` extended with `MODEL_PROVIDER`/`OLLAMA_BASE_URL`/`OLLAMA_MODEL`, a synchronous explicit opt-in switch | `lib/ai/model-router.ts` |
+| Local Ollama installation/verification runbook (Fedora Workstation) | `docs/local-ollama-setup.md` |
+| Unit tests covering default-unchanged, mock precedence, and default/custom Ollama construction | `tests/unit/model-router.test.ts` |
+
+**Acceptance criteria:** with no new env vars set, `getModel()`'s behavior is byte-for-byte unchanged. `MODEL_PROVIDER=ollama` (with Ollama running locally per the runbook) routes all four purposes to the local endpoint; `E2E_MOCK_LLM` still takes precedence. Neither existing caller needs a code change.
+**Testing:** unit tests exercising `getModel`'s branching via env-var stubbing and introspection of the returned model's `modelId`/`provider`/`config.url(...)` — no live network call, no live Ollama instance in CI.
+**Risks:** genuine automatic runtime retry-on-failure fallback (docs/02-TRD.md §5.6's flowchart) remains unbuilt — this only adds a manually-configured static switch. That larger item remains tracked as remaining Phase 2 work.
+**Definition of Done:** same bar as other phases (§14) — lint/typecheck/tests pass, `.env.example` updated in the same commit, this section and `docs/02-TRD.md` §5.6 reflect the shipped Ollama option.
+
 #### Phase 3 — Topic Generation + Editor
 
 **Objectives:** close the loop from knowledge → topic suggestion → owner decision → editor.

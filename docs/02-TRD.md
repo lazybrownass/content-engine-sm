@@ -265,6 +265,7 @@ flowchart TB
 
 - No paid API is ever called automatically. A paid fallback (e.g., an Anthropic or OpenAI key) may be configured by the owner in Settings for a specific stage, but it is opt-in per stage and clearly labeled with an estimated cost — this satisfies "prioritize free models" while not making the system brittle to free-tier outages if the owner decides the tradeoff is worth it for a specific high-value stage (commonly Writing or Quality Review).
 - All model calls go through a single internal `ModelRouter` abstraction (`lib/ai/model-router.ts`) so stage code never calls a provider SDK directly — this is what makes swapping a model a configuration change, not a code change.
+- A separate, simpler option exists alongside this cloud-retry-failover design: `lib/ai/model-router.ts` supports an explicit, manually-configured `MODEL_PROVIDER=ollama` switch routing all model calls to a local Ollama instance instead of Hugging Face Inference. This is a static, owner-decided configuration choice — not the automatic health-check/retry-driven failover this section's flowchart describes. Ollama is documented here as a free, zero-network-dependency *alternative primary*, not as an implementation of the flowchart's "Secondary free provider" step. See `docs/local-ollama-setup.md`.
 
 #### 5.7 Pipeline Execution Model
 
