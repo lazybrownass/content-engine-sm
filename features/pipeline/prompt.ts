@@ -98,3 +98,70 @@ export function buildGrillPrompt({
 
   return { system, prompt };
 }
+
+export interface BuildTopicGenerationPromptInput {
+  knowledgeStatsSummary: string;
+  existingTitles: string[];
+  knowledgeChunks: KnowledgeSearchItemResult[];
+}
+
+export function buildTopicGenerationPrompt({
+  knowledgeStatsSummary,
+  existingTitles,
+  knowledgeChunks,
+}: BuildTopicGenerationPromptInput): BuildPromptOutput {
+  const system = [
+    "You are a content strategist suggesting LinkedIn post topics for a single author, grounded strictly in their knowledge base.",
+    "Return ONLY a JSON object with key suggestions (an array of 5-10 objects), each with keys title, rationale, pillar, sourceKnowledgeIds (array of the CONTEXT item ids the suggestion draws on), and score (0-1, your confidence this is a strong topic). No markdown fences, no commentary, no extra keys.",
+    "Favor topics that cover categories/pillars underrepresented in KNOWLEDGE COVERAGE below, and that are not near-duplicates of EXISTING TOPICS.",
+    "Every sourceKnowledgeIds entry must be an id that literally appears in the CONTEXT below — never invent one.",
+  ].join("\n\n");
+
+  const prompt = [
+    `KNOWLEDGE COVERAGE:\n${knowledgeStatsSummary}`,
+    `EXISTING TOPICS (avoid duplicating):\n${
+      existingTitles.length > 0 ? existingTitles.map((title) => `- ${title}`).join("\n") : "(none yet)"
+    }`,
+    `CONTEXT:\n${knowledgeChunks
+      .map(({ item, matchedContent }) => `### ${item.id} — ${item.title}\n${matchedContent}`)
+      .join("\n\n")}`,
+  ].join("\n\n");
+
+  return { system, prompt };
+}
+
+export type InlineEditAction = "rewrite" | "shorten" | "change_hook";
+
+export interface BuildInlineEditPromptInput {
+  action: InlineEditAction;
+  selectedText: string;
+  contextText: string;
+  brandVoice: BrandVoice | null;
+}
+
+const INLINE_EDIT_INSTRUCTIONS: Record<InlineEditAction, string> = {
+  rewrite: "Rewrite the SELECTED text to read better, keeping its meaning and length roughly the same.",
+  shorten: "Shorten the SELECTED text to its most essential point, cutting at least a third of its length.",
+  change_hook:
+    "Rewrite the SELECTED text (the post's opening line) into a stronger, more attention-grabbing hook.",
+};
+
+export function buildInlineEditPrompt({
+  action,
+  selectedText,
+  contextText,
+  brandVoice,
+}: BuildInlineEditPromptInput): BuildPromptOutput {
+  const system = [
+    "You are an editor making one focused change to a single sentence or passage within a larger LinkedIn post.",
+    INLINE_EDIT_INSTRUCTIONS[action],
+    "Return ONLY a JSON object with key result (the replacement text for SELECTED only — not the full post). No markdown fences, no commentary, no extra keys.",
+    buildBrandVoiceBlock(brandVoice),
+  ].join("\n\n");
+
+  const prompt = [`FULL POST (for context/voice only):\n${contextText}`, `SELECTED:\n${selectedText}`].join(
+    "\n\n",
+  );
+
+  return { system, prompt };
+}

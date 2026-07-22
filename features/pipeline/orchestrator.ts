@@ -14,6 +14,16 @@ export interface RunPipelineInput {
   brandVoice: BrandVoice | null;
   knowledgeChunks?: KnowledgeSearchItemResult[];
   minQualityScore?: number;
+  postId?: string;
+  topicId?: string;
+}
+
+// The orchestrator stays Post-agnostic — it never imports/writes prisma.post itself.
+// finalText is handed back so the caller (features/posts/actions.ts) decides what to
+// do with it, keeping this module reusable/testable without a Post fixture.
+export interface RunPipelineResult {
+  pipelineRun: PipelineRun;
+  finalText: string | null; // null only on the FAILED paths
 }
 
 // Records the full audit trail for one stage call: a FAILED row for the first
@@ -91,10 +101,14 @@ export async function runPipeline({
   brandVoice,
   knowledgeChunks = [],
   minQualityScore,
-}: RunPipelineInput): Promise<PipelineRun> {
+  postId,
+  topicId,
+}: RunPipelineInput): Promise<RunPipelineResult> {
   const pipelineRun = await prisma.pipelineRun.create({
     data: {
       ownerId,
+      postId,
+      topicId,
       status: "RUNNING",
       currentStage: PipelineStage.OUTLINE,
       startedAt: new Date(),
@@ -107,7 +121,7 @@ export async function runPipeline({
   try {
     outlineResult = await runOutlineStage({ topic, brandVoice, knowledgeChunks });
   } catch (error) {
-    return failPipeline(pipelineRunId, PipelineStage.OUTLINE, error);
+    return { pipelineRun: await failPipeline(pipelineRunId, PipelineStage.OUTLINE, error), finalText: null };
   }
   await recordStageAiRuns(pipelineRunId, PipelineStage.OUTLINE, outlineResult);
   await advancePipelineRun(pipelineRunId, PipelineStage.DRAFT, outlineResult.retried);
@@ -122,7 +136,7 @@ export async function runPipeline({
       knowledgeChunks,
     });
   } catch (error) {
-    return failPipeline(pipelineRunId, PipelineStage.DRAFT, error);
+    return { pipelineRun: await failPipeline(pipelineRunId, PipelineStage.DRAFT, error), finalText: null };
   }
   await recordStageAiRuns(pipelineRunId, PipelineStage.DRAFT, draftResult);
   await advancePipelineRun(pipelineRunId, PipelineStage.GRILL_REVIEW, draftResult.retried);
@@ -137,12 +151,12 @@ export async function runPipeline({
       minQualityScore,
     });
   } catch (error) {
-    return failPipeline(pipelineRunId, PipelineStage.GRILL_REVIEW, error);
+    return { pipelineRun: await failPipeline(pipelineRunId, PipelineStage.GRILL_REVIEW, error), finalText: null };
   }
   await recordStageAiRuns(pipelineRunId, PipelineStage.GRILL_REVIEW, grillResult);
 
   if (grillResult.passed) {
-    return prisma.pipelineRun.update({
+    const completedRun = await prisma.pipelineRun.update({
       where: { id: pipelineRunId },
       data: {
         status: "COMPLETED",
@@ -151,6 +165,7 @@ export async function runPipeline({
         retryCount: grillResult.retried ? { increment: 1 } : undefined,
       },
     });
+    return { pipelineRun: completedRun, finalText: draftResult.output.content };
   }
 
   // Bounded revision cycle — exactly one, never unbounded (AGENTS.md Rule 8.8).
@@ -173,7 +188,7 @@ export async function runPipeline({
       revisionFeedback: grillResult.output.violations,
     });
   } catch (error) {
-    return failPipeline(pipelineRunId, PipelineStage.DRAFT, error);
+    return { pipelineRun: await failPipeline(pipelineRunId, PipelineStage.DRAFT, error), finalText: null };
   }
   await recordStageAiRuns(pipelineRunId, PipelineStage.DRAFT, revisedDraftResult);
   await advancePipelineRun(pipelineRunId, PipelineStage.GRILL_REVIEW, revisedDraftResult.retried);
@@ -187,14 +202,14 @@ export async function runPipeline({
       minQualityScore,
     });
   } catch (error) {
-    return failPipeline(pipelineRunId, PipelineStage.GRILL_REVIEW, error);
+    return { pipelineRun: await failPipeline(pipelineRunId, PipelineStage.GRILL_REVIEW, error), finalText: null };
   }
   await recordStageAiRuns(pipelineRunId, PipelineStage.GRILL_REVIEW, revisedGrillResult);
 
   // Regardless of the second Grill result, the run terminates here — FAILED is
   // reserved exclusively for genuine technical failures, never a still-low score
   // after the one bounded revision (AGENTS.md Rule 8.8 / docs/01-PRD.md FR-14).
-  return prisma.pipelineRun.update({
+  const completedRun = await prisma.pipelineRun.update({
     where: { id: pipelineRunId },
     data: {
       status: "COMPLETED",
@@ -203,4 +218,5 @@ export async function runPipeline({
       retryCount: revisedGrillResult.retried ? { increment: 1 } : undefined,
     },
   });
+  return { pipelineRun: completedRun, finalText: revisedDraftResult.output.content };
 }

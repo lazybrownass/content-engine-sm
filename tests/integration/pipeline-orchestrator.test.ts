@@ -65,11 +65,16 @@ describe("runPipeline", () => {
       grillReview: sequencedMockModel([JSON.stringify({ qualityScore: 92, violations: [] })]),
     });
 
-    const run = await runPipeline({ ownerId: owner, topic: "Ship in public", brandVoice: null });
+    const { pipelineRun: run, finalText } = await runPipeline({
+      ownerId: owner,
+      topic: "Ship in public",
+      brandVoice: null,
+    });
 
     expect(run.status).toBe("COMPLETED");
     expect(run.grillCycles).toBe(0);
     expect(run.qualityScore).toBe(92);
+    expect(finalText).toBe("Draft content.");
 
     const aiRuns = await prisma.aiRun.findMany({ where: { pipelineRunId: run.id } });
     expect(aiRuns).toHaveLength(3);
@@ -89,11 +94,16 @@ describe("runPipeline", () => {
       ]),
     });
 
-    const run = await runPipeline({ ownerId: owner, topic: "Ship in public", brandVoice: null });
+    const { pipelineRun: run, finalText } = await runPipeline({
+      ownerId: owner,
+      topic: "Ship in public",
+      brandVoice: null,
+    });
 
     expect(run.status).toBe("COMPLETED");
     expect(run.grillCycles).toBe(1);
     expect(run.qualityScore).toBe(90);
+    expect(finalText).toBe("Revised draft.");
 
     const aiRuns = await prisma.aiRun.findMany({ where: { pipelineRunId: run.id } });
     expect(aiRuns).toHaveLength(5);
@@ -112,11 +122,16 @@ describe("runPipeline", () => {
       ]),
     });
 
-    const run = await runPipeline({ ownerId: owner, topic: "Ship in public", brandVoice: null });
+    const { pipelineRun: run, finalText } = await runPipeline({
+      ownerId: owner,
+      topic: "Ship in public",
+      brandVoice: null,
+    });
 
     expect(run.status).toBe("COMPLETED");
     expect(run.grillCycles).toBe(1);
     expect(run.qualityScore).toBe(50);
+    expect(finalText).toBe("Still not great.");
 
     const aiRuns = await prisma.aiRun.findMany({ where: { pipelineRunId: run.id } });
     expect(aiRuns).toHaveLength(5);
@@ -131,10 +146,15 @@ describe("runPipeline", () => {
       grillReview: sequencedMockModel([JSON.stringify({ qualityScore: 90, violations: [] })]),
     });
 
-    const run = await runPipeline({ ownerId: owner, topic: "Ship in public", brandVoice: null });
+    const { pipelineRun: run, finalText } = await runPipeline({
+      ownerId: owner,
+      topic: "Ship in public",
+      brandVoice: null,
+    });
 
     expect(run.status).toBe("FAILED");
     expect(run.lastError).toBeTruthy();
+    expect(finalText).toBeNull();
 
     const aiRuns = await prisma.aiRun.findMany({ where: { pipelineRunId: run.id } });
     expect(aiRuns).toHaveLength(1);
@@ -149,10 +169,15 @@ describe("runPipeline", () => {
       grillReview: sequencedMockModel([JSON.stringify({ qualityScore: 92, violations: [] })]),
     });
 
-    const run = await runPipeline({ ownerId: owner, topic: "Ship in public", brandVoice: null });
+    const { pipelineRun: run, finalText } = await runPipeline({
+      ownerId: owner,
+      topic: "Ship in public",
+      brandVoice: null,
+    });
 
     expect(run.status).toBe("COMPLETED");
     expect(run.retryCount).toBe(1);
+    expect(finalText).toBe("Draft content.");
 
     const outlineRuns = await prisma.aiRun.findMany({
       where: { pipelineRunId: run.id, stage: "OUTLINE" },
