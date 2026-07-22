@@ -25,7 +25,17 @@ export function GenerationWorkspace({ brandVoices }: { brandVoices: BrandVoice[]
   const defaultVoiceId = brandVoices.find((voice) => voice.isDefault)?.id ?? "";
   const [prompt, setPrompt] = useState("");
   const [brandVoiceId, setBrandVoiceId] = useState(defaultVoiceId);
+  const [touchedBrandVoice, setTouchedBrandVoice] = useState(false);
   const [tab, setTab] = useState<Tab>("linkedin");
+
+  // Adjust state during render (not an effect) when the default voice changes
+  // underneath us (e.g. after router.refresh() from the brand voice manager) —
+  // but only if the user hasn't manually picked a different voice themselves.
+  const [prevDefaultVoiceId, setPrevDefaultVoiceId] = useState(defaultVoiceId);
+  if (defaultVoiceId !== prevDefaultVoiceId) {
+    setPrevDefaultVoiceId(defaultVoiceId);
+    if (!touchedBrandVoice) setBrandVoiceId(defaultVoiceId);
+  }
 
   const { object, submit, isLoading, stop, error } = useObject({
     api: "/api/generate",
@@ -46,7 +56,10 @@ export function GenerationWorkspace({ brandVoices }: { brandVoices: BrandVoice[]
           <select
             id="brand-voice"
             value={brandVoiceId}
-            onChange={(e) => setBrandVoiceId(e.target.value)}
+            onChange={(e) => {
+              setBrandVoiceId(e.target.value);
+              setTouchedBrandVoice(true);
+            }}
             className="h-8 w-56 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <option value="">No brand voice</option>

@@ -51,7 +51,7 @@ export function BrandVoiceManager({ voices }: { voices: BrandVoice[] }) {
           Manage brand voices
         </SheetTrigger>
         <SheetContent className="flex flex-col gap-4 overflow-y-auto sm:max-w-md">
-          <SheetHeader className="flex-row items-center justify-between">
+          <SheetHeader className="flex-row items-center justify-between pr-10">
             <SheetTitle>Brand voices</SheetTitle>
             <Button
               size="icon-sm"
