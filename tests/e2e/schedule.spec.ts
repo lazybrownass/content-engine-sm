@@ -1,15 +1,27 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { PrismaClient } from "@prisma/client";
 
-import { loginAsOwner } from "./helpers/auth";
+import { loginAsOwner, OWNER_EMAIL } from "./helpers/auth";
 
+const prisma = new PrismaClient();
+
+// CI injects CRON_SECRET directly into process.env (no root .env file exists there); local
+// dev keeps it in .env, which the Playwright test process (unlike the Next.js webServer it
+// spawns) does not auto-load — so fall back to reading the file only when running locally.
 function readEnvVar(name: string): string {
-  const envFile = readFileSync(path.resolve(process.cwd(), ".env"), "utf-8");
-  const match = envFile.match(new RegExp(`^${name}=(.*)$`, "m"));
-  if (!match?.[1]) throw new Error(`${name} not set in .env`);
-  return match[1].trim();
+  if (process.env[name]) return process.env[name]!;
+  try {
+    const envFile = readFileSync(path.resolve(process.cwd(), ".env"), "utf-8");
+    const match = envFile.match(new RegExp(`^${name}=(.*)$`, "m"));
+    if (match?.[1]) return match[1].trim();
+  } catch {
+    // no local .env file — fall through to the error below
+  }
+  throw new Error(`${name} not set in process.env or .env`);
 }
 
 test("redirects /schedule to /login when unauthenticated", async ({ page }) => {
@@ -27,6 +39,10 @@ test.describe("schedule a post via the Manual provider", () => {
     await loginAsOwner(page);
   });
 
+  test.afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
   test("schedule -> force-dispatch -> copy -> mark published happy path", async ({
     page,
     request,
@@ -34,14 +50,16 @@ test.describe("schedule a post via the Manual provider", () => {
   }) => {
     await context.grantPermissions(["clipboard-write"], { origin: "http://localhost:3000" });
 
-    // Produce one APPROVED post via the same mock-LLM pipeline as topics-to-post.spec.ts.
-    await page.goto("/topics");
-    await page.getByRole("button", { name: "Generate suggestions" }).click();
-    await expect(page.getByText("Mock topic suggestion")).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "Accept" }).first().click();
-    await expect(page).toHaveURL(/\/posts\/[^/]+\/edit$/, { timeout: 20_000 });
-    await page.getByRole("button", { name: "Approve" }).click();
-    await expect(page.getByText("Approved", { exact: true })).toBeVisible();
+    // Seed the APPROVED post directly rather than through /topics' "Generate suggestions" —
+    // this test is about scheduling, not topic generation (already covered by
+    // topics-to-post.spec.ts), and going through that shared UI flow would add another
+    // "Mock topic suggestion" topic under the same shared OWNER_EMAIL account other spec
+    // files also drive, causing cross-file strict-mode collisions on that fixed title.
+    const owner = await prisma.user.findUniqueOrThrow({ where: { email: OWNER_EMAIL } });
+    const marker = `E2E schedule test post ${randomUUID().slice(0, 8)}`;
+    const post = await prisma.post.create({
+      data: { ownerId: owner.id, pillar: "CASE_STUDY", status: "APPROVED", finalText: marker },
+    });
 
     // Schedule that post today via the Manual provider (the dialog's default date/time is
     // today at midnight, already in the past — so the cron dispatch below finds it immediately).
@@ -49,7 +67,7 @@ test.describe("schedule a post via the Manual provider", () => {
     await page.getByRole("button", { name: "Schedule a post on this day" }).first().click();
 
     await page.getByRole("combobox", { name: "Post" }).click();
-    await page.getByRole("option", { name: /mock drafted post/i }).click();
+    await page.getByRole("option", { name: marker }).click();
 
     await page.getByRole("combobox", { name: "Automation provider" }).click();
     await page.getByRole("option", { name: /^Manual/ }).click();
@@ -76,6 +94,8 @@ test.describe("schedule a post via the Manual provider", () => {
     await page.getByRole("button", { name: "Mark published" }).click();
     await expect(page.getByText("Marked as published")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Ready to publish manually" })).toHaveCount(0);
+
+    await prisma.post.delete({ where: { id: post.id } }).catch(() => {});
   });
 
   test("has no automatically detectable accessibility violations on /schedule", async ({ page }) => {

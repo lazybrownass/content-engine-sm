@@ -3,6 +3,14 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
+  // Every spec file that needs auth logs in as the same single OWNER_EMAIL via a real
+  // magic-link round trip through one shared Mailpit inbox (see tests/e2e/helpers/auth.ts).
+  // GoTrue invalidates an unconsumed magic-link token when a newer one is issued for the same
+  // email, so two files' logins racing in parallel workers can expire each other's link
+  // ("otp_expired"). Each file already serializes its own describe blocks, but only a single
+  // worker serializes *across* files — this is a single-owner test fixture, not a suite
+  // designed for multi-worker isolation.
+  workers: 1,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
   use: {
