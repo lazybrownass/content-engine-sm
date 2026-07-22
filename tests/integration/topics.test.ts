@@ -122,9 +122,27 @@ describe("queries", () => {
   let seeded: Topic[] = [];
 
   beforeAll(async () => {
-    const t1 = await makeTopic(ownerC, { title: "Topic 1", status: "SUGGESTED", pillar: "CASE_STUDY" });
-    const t2 = await makeTopic(ownerC, { title: "Topic 2", status: "ACCEPTED", pillar: "EDUCATIONAL" });
-    const t3 = await makeTopic(ownerC, { title: "Topic 3", status: "REJECTED", pillar: "CASE_STUDY" });
+    // Explicit, well-separated createdAt values: getRecentTopicTitles orders by createdAt
+    // only, and creating these back-to-back can otherwise land in the same millisecond
+    // in CI, making the DESC ordering nondeterministic.
+    const t1 = await makeTopic(ownerC, {
+      title: "Topic 1",
+      status: "SUGGESTED",
+      pillar: "CASE_STUDY",
+      createdAt: new Date(Date.now() - 2000),
+    });
+    const t2 = await makeTopic(ownerC, {
+      title: "Topic 2",
+      status: "ACCEPTED",
+      pillar: "EDUCATIONAL",
+      createdAt: new Date(Date.now() - 1000),
+    });
+    const t3 = await makeTopic(ownerC, {
+      title: "Topic 3",
+      status: "REJECTED",
+      pillar: "CASE_STUDY",
+      createdAt: new Date(),
+    });
     seeded = [t1, t2, t3];
 
     await makeTopic(ownerB, { title: "Belongs to a different owner" });
