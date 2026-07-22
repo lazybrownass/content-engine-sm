@@ -5,7 +5,7 @@ import { buildInlineEditPrompt, type InlineEditAction } from "@/features/pipelin
 import { generateStageObject } from "@/features/pipeline/run-stage";
 import { inlineEditOutputSchema } from "@/features/pipeline/schema";
 
-const STAGE_BY_ACTION: Record<InlineEditAction, PipelineStage> = {
+export const STAGE_BY_ACTION: Record<InlineEditAction, PipelineStage> = {
   rewrite: PipelineStage.INLINE_REWRITE,
   shorten: PipelineStage.INLINE_SHORTEN,
   change_hook: PipelineStage.INLINE_CHANGE_HOOK,
