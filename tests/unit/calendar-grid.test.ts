@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { addDays, dayKey, getMonthGridDays, getWeekDays, startOfWeek } from "@/features/publishing/calendar";
+import {
+  addDays,
+  addMonths,
+  dayKey,
+  formatAnchorDate,
+  getMonthGridDays,
+  getWeekDays,
+  parseAnchorDate,
+  startOfWeek,
+} from "@/features/publishing/calendar";
 
 describe("startOfWeek / getWeekDays", () => {
   it("returns the Monday on or before a mid-week anchor", () => {
@@ -59,5 +68,39 @@ describe("dayKey", () => {
   it("returns a stable YYYY-MM-DD format", () => {
     const instant = new Date("2026-07-04T12:00:00Z");
     expect(dayKey(instant, "UTC")).toBe("2026-07-04");
+  });
+});
+
+describe("addMonths", () => {
+  it("advances the month and does not mutate the input", () => {
+    const original = new Date(2026, 2, 18);
+    const copy = new Date(original);
+    const result = addMonths(original, 1);
+    expect(result.toDateString()).toBe(new Date(2026, 3, 18).toDateString());
+    expect(original.getTime()).toBe(copy.getTime());
+  });
+
+  it("supports negative offsets", () => {
+    const result = addMonths(new Date(2026, 2, 18), -1);
+    expect(result.toDateString()).toBe(new Date(2026, 1, 18).toDateString());
+  });
+});
+
+describe("parseAnchorDate / formatAnchorDate", () => {
+  it("round-trips a YYYY-MM-DD string", () => {
+    expect(formatAnchorDate(parseAnchorDate("2026-03-18"))).toBe("2026-03-18");
+  });
+
+  it("parses in local time, not UTC", () => {
+    const parsed = parseAnchorDate("2026-03-18");
+    expect(parsed.getFullYear()).toBe(2026);
+    expect(parsed.getMonth()).toBe(2);
+    expect(parsed.getDate()).toBe(18);
+    expect(parsed.getHours()).toBe(0);
+  });
+
+  it("falls back to now for an undefined or invalid value", () => {
+    expect(parseAnchorDate(undefined).getTime()).toBeGreaterThan(0);
+    expect(parseAnchorDate("not-a-date").getTime()).toBeGreaterThan(0);
   });
 });

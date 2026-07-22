@@ -27,6 +27,12 @@ export function startOfMonth(date: Date): Date {
   return result;
 }
 
+export function addMonths(date: Date, months: number): Date {
+  const result = new Date(date);
+  result.setMonth(result.getMonth() + months);
+  return result;
+}
+
 // Always 42 days (6 full Monday-start weeks) so the grid height never shifts month to month.
 export function getMonthGridDays(anchor: Date): Date[] {
   const gridStart = startOfWeek(startOfMonth(anchor));
@@ -42,4 +48,19 @@ export function dayKey(date: Date, timezone: string): string {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+// The /schedule page's `anchor` searchParam round-trips through these two — parsed in local
+// time (not UTC) so the grid's local-time day arithmetic above stays consistent with it.
+export function parseAnchorDate(value: string | undefined): Date {
+  if (!value) return new Date();
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+export function formatAnchorDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
