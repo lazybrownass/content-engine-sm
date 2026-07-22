@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.3.0...v1.4.0) (2026-07-22)
+
+
+### Features
+
+* **pipeline:** add opt-in local Ollama provider to model router ([#15](https://github.com/lazybrownass/content-engine-sm/issues/15)) ([91bbc52](https://github.com/lazybrownass/content-engine-sm/commit/91bbc52d5ef3fdee60daa02914e1674ce59916b3))
+
 ## [1.3.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.2.0...v1.3.0) (2026-07-22)
 
 
