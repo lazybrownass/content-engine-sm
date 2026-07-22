@@ -291,6 +291,26 @@ always listed. Explicitly out of sequence — recorded here per AGENTS.md §10.1
 **Risks:** inline AI actions feel slow if each round-trips the full model stack — mitigate by routing inline actions to the fast Qwen3-8B tier, not the heavier Writing-stage model.
 **Definition of Done:** a real topic, generated from real knowledge, becomes a real approved post through this UI.
 
+#### Phase 3 (partial) — Topic Generation + Studio Editor (out-of-order continuation)
+
+**Objectives:** a trimmed slice of the Phase 3 loop above — `Topic`/`Post` schema, RAG-driven topic suggestions, and a studio editor with AI refinement — built ahead of `DomainContext`, media generation, and the remaining pipeline stages. Explicitly out of sequence — recorded here per AGENTS.md §10.1, mirroring the "Phase 2 (continued)" precedent.
+
+| Task | Deliverable |
+|---|---|
+| `Topic`/`Post` schema (direct `ownerId`, trimmed `TopicStatus`/`PostStatus` enums), `PipelineRun.postId`/`topicId`, `PipelineStage` extended with `TOPIC_GENERATION`/`INLINE_REWRITE`/`INLINE_SHORTEN`/`INLINE_CHANGE_HOOK`, RLS in the same migration | `prisma/migrations/*_add_topics_posts_schema` |
+| `lib/ai/model-router.ts` extended with `topic_generation`/`inline_edit` purposes, the latter routed to a smaller/faster model | `lib/ai/model-router.ts` |
+| Topic-generation and inline-edit stage modules; `runSingleStagePipeline()` for single-stage runs outside the 3-stage Grill loop; `runPipeline()` threaded with optional `postId`/`topicId` and returning `{ pipelineRun, finalText }` | `features/pipeline/` |
+| Topic generation reading knowledge coverage stats + recent topic titles, sanitizing `sourceKnowledgeIds` against a real ownership check; accept/reject/edit topic actions | `features/topics/` |
+| `createPostFromTopic`/`regeneratePost`/`updatePost`/`approvePost`/`archivePost`/`applyInlineEdit` actions | `features/posts/` |
+| `/topics` studio UI (status filter, Accept/Reject/Edit, Generate button) | `app/(app)/topics/` |
+| `/posts` list + `/posts/[id]/edit` studio editor (inline rewrite/shorten/change-hook, Regenerate with a plain side-by-side before/after, Save, Approve) | `app/(app)/posts/` |
+
+**Acceptance criteria:** owner can click Generate on `/topics`, Accept a suggestion, and land on a populated `/posts/[id]/edit` with the pipeline's drafted text, quality score, and revision-cycle count already in NEEDS_OWNER_REVIEW; every decision (accept, edit, regenerate, approve) is explicit; inline rewrite/shorten/change-hook actions never auto-save; Regenerate is gated behind a confirm dialog stating there is no undo.
+**Testing:** unit tests for the new pipeline schemas/prompt builders and model-router purposes; integration tests for Topic/Post CRUD with cross-owner isolation, a raw RLS-scoping proof on both new tables, topic-generation and inline-edit stage tests (happy path + malformed-JSON-twice failure path per AGENTS.md §9.2), and `createPostFromTopic`/`regeneratePost` mapping tests; an E2E happy path (generate → accept → approve) plus accessibility checks on `/topics`, `/posts`, and the editor.
+**Risks:** inline editor actions route to a separate `inline_edit` model purpose (smaller/faster default) specifically to avoid the "feels slow" risk called out in the original Phase 3 section above. Regenerate has no undo beyond the ephemeral before/after comparison shown once — a named, deliberate limitation pending `PostVersion`.
+**Definition of Done:** same bar as other phases (§14) — lint/typecheck/tests pass, RLS present in the same migration, docs (this section + `docs/05-Backend-Schema.md`'s Phase 3 deviation note) match the shipped implementation.
+**Remaining for full Phase 3:** `DomainContext` CRUD, `GeneratedMedia`/media providers, `PromptTemplate`, `Feedback` model, `PostVersion`, the repeated-phrase materialized view, 90-day reject-suppression semantics (`TopicStatus.EXPIRED`, `rejectReasonCode`, `suppressedUntil`), and the 9 additional pipeline stages (knowledge retrieval, business context merge, target audience framing, pain point mapping, content opportunity scoring, research, humanization, grammar, CTA generation).
+
 #### Phase 4 — Scheduling + Publishing Adapters
 
 **Objectives:** provider-agnostic publishing, starting with Manual (guaranteed to work) and one automation provider.

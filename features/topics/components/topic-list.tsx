@@ -152,7 +152,7 @@ function TopicCard({
   return (
     <div className="flex flex-col gap-2 rounded-lg border bg-card p-4 text-sm shadow-xs">
       <div className="flex items-start justify-between gap-2">
-        <h3 className="font-medium">{topic.title}</h3>
+        <h2 className="font-medium">{topic.title}</h2>
         <div className="flex shrink-0 gap-1">
           {topic.score != null && <Badge variant="secondary">{Math.round(topic.score * 100)}%</Badge>}
           <Badge variant="outline">{formatEnumLabel(topic.pillar)}</Badge>

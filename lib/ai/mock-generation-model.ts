@@ -10,6 +10,28 @@ const MOCK_PAYLOAD = {
   tweetThread: ["Mock tweet one.", "Mock tweet two."],
 };
 
+// A single combined payload for the ai SDK's generateObject() path (used by every
+// features/pipeline stage via generateStageObject — outline/draft/grill_review/
+// topic_generation/inline_edit). Each stage's Zod schema only picks out its own
+// subset of keys and ignores the rest, so one object can satisfy all of them without
+// this mock needing to know which purpose/schema is being requested.
+const MOCK_GENERATE_OBJECT_PAYLOAD = {
+  sections: ["Hook", "Body", "CTA"],
+  content: "This is a mock drafted post used only for deterministic E2E runs.",
+  qualityScore: 95,
+  violations: [] as string[],
+  suggestions: [
+    {
+      title: "Mock topic suggestion",
+      rationale: "Mock rationale for a deterministic E2E run.",
+      pillar: "CASE_STUDY",
+      sourceKnowledgeIds: [] as string[],
+      score: 0.8,
+    },
+  ],
+  result: "Mock inline edit result.",
+};
+
 export function createMockGenerationModel(): LanguageModelV2 {
   return {
     specificationVersion: "v2",
@@ -17,7 +39,12 @@ export function createMockGenerationModel(): LanguageModelV2 {
     modelId: "mock-generation-model",
     supportedUrls: {},
     async doGenerate() {
-      throw new Error("createMockGenerationModel only supports doStream");
+      return {
+        content: [{ type: "text", text: JSON.stringify(MOCK_GENERATE_OBJECT_PAYLOAD) }],
+        finishReason: "stop",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        warnings: [],
+      };
     },
     async doStream() {
       const chunks: LanguageModelV2StreamPart[] = [

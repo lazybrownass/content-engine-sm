@@ -1,14 +1,42 @@
 # LinkedIn Content Engine
 
-Single-owner internal tool that turns raw knowledge (projects, case studies,
-lessons learned) into LinkedIn posts through a multi-stage AI pipeline. Full
-spec lives in `docs/` (PRD, TRD, App Flow, UI/UX brief, backend schema,
-implementation plan) and `ai/AGENTS.md` (agent operating rules).
+**Feed it what you've actually done. Get back what you should actually post.**
 
-## Status
+You did the work — shipped the feature, landed the client, learned the hard lesson. Content Engine turns that raw material into LinkedIn posts that sound like you, grounded in things that actually happened, reviewed by a merciless in-house editor before you ever see them. No blank page. No generic "5 tips" filler. No AI slop with your name on it.
 
-Phase 0 (Project Bootstrap) complete: authenticated shell only, no feature
-tables yet.
+It's a single-owner internal tool — built for exactly one person to run their own content pipeline, not a SaaS, not multi-tenant, not trying to be everything. Full spec lives in `docs/` (PRD, TRD, App Flow, UI/UX brief, backend schema, implementation plan) and `ai/AGENTS.md` (agent operating rules) for anyone extending it.
+
+## What it actually does
+
+**Remembers everything, so you don't have to.** The Knowledge Base is where your projects, case studies, client wins, lessons learned, and half-formed ideas live — tagged by category and content pillar, hybrid full-text + semantic search (pgvector embeddings + cross-encoder reranking) so "that thing with the latency fix" finds the right note even if you never used the word "latency."
+
+**Suggests what to write about — from your own knowledge, not thin air.** Hit "Generate suggestions" on `/topics` and it reads your knowledge coverage (which pillars are stacked, which are thin), avoids repeating what you've already posted, and proposes 5–10 grounded topic ideas with a rationale and a confidence score for each. Accept one, reject one, edit one — every suggestion traces back to the specific knowledge it drew from.
+
+**Writes a full draft — and then argues with itself about it.** Accept a topic and it runs outline → draft → **Grill**, a self-critique pass that scores the draft against your brand voice and flags fabricated claims or forbidden words. If it scores low, it rewrites itself once, automatically, before ever bothering you. You get a quality score and a revision count, not a black box.
+
+**Sounds like you, not like ChatGPT.** Brand Voice profiles capture tone, target audience, forbidden words, signature hooks, and formatting rules — set a default and every generation and every self-critique pass measures against it.
+
+**A real editor, not just a text box.** The `/posts/[id]/edit` studio gives you the draft plus scoped, one-click AI actions: rewrite a selection, shorten a selection, or punch up the opening hook — each a fast, cheap, single-purpose model call, never the full pipeline. Not happy with the whole draft? Regenerate it (with a confirm dialog, because there's no undo) and see the old and new side by side before you decide what to keep.
+
+**On-demand mode when you already know what you want to say.** `/generate` skips the topic-suggestion step entirely: describe a topic, pick a brand voice, and stream back a LinkedIn post, an X thread, and a standalone hook — all in one pass, all grounded in the same knowledge base.
+
+**Runs on Hugging Face by default, your own machine if you'd rather.** Every model call goes through one router — swap in a local Ollama model with a single env var, no code changes, no vendor lock-in.
+
+**Every model call is logged, scored, and accountable.** Every pipeline run and every individual model call is recorded — status, latency, token counts, retries, failures — so "why did this draft come out weird" always has an answer.
+
+**Yours and only yours.** Single-owner by design: an email allowlist gates everything behind Supabase auth, every table is scoped to one owner both in application code and via Postgres Row-Level Security, and there's no multi-tenant scaffolding anywhere to misconfigure.
+
+## Where it stands
+
+| Phase | What shipped |
+|---|---|
+| 0 — Bootstrap | Authenticated shell, CI/CD, branch protection, release automation |
+| 1 — Knowledge Base | Full CRUD, categories/pillars/tags, hybrid search + reranking, bulk import |
+| 2.5 — Brand Voice + On-Demand Generation | Voice profiles, streaming `/generate` (LinkedIn + X thread + hook) |
+| 2 (partial) — Pipeline Core | Outline → Draft → Grill self-critique loop, full AiRun observability, opt-in local Ollama provider |
+| 3 (partial) — Topics & Studio Editor | AI topic suggestions from knowledge gaps, accept-to-draft pipeline, studio editor with inline rewrite/shorten/change-hook and Regenerate |
+
+Deferred, tracked, not forgotten: Domain Contexts, media generation (images/video), scheduling & publishing, analytics, and a handful of pipeline stages (research, humanization, CTA generation, and others) — see `docs/06-Implementation-Plan.md` for the full roadmap and every documented deviation from the original spec.
 
 ## Prerequisites
 
@@ -64,15 +92,20 @@ is `http://127.0.0.1:54321`; `DATABASE_URL`/`DIRECT_URL` both point at
 `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (no pooler locally).
 `OWNER_EMAILS` is a comma-separated list of the email address(es) allowed past
 `/login` — any other authenticated address is redirected to `/forbidden`.
+`HUGGINGFACE_API_TOKEN` powers embeddings, reranking, and generation by
+default; set `MODEL_PROVIDER=ollama` (plus `OLLAMA_BASE_URL`/`OLLAMA_MODEL` if
+you're not using the defaults) to route generation to a local Ollama instance
+instead — see `docs/local-ollama-setup.md`.
 
-### 4. Install dependencies and run the first migration
+### 4. Install dependencies and run migrations
 
 ```bash
 npm install
-npx prisma migrate dev --name init
+npx prisma migrate deploy
 ```
 
-Creates the `users` and `settings` tables (via `DIRECT_URL`).
+Applies every migration in `prisma/migrations/` (users/settings, knowledge
+base, brand voice, pipeline core, topics/posts) against `DIRECT_URL`.
 
 ### 5. Run the dev server
 
@@ -81,8 +114,9 @@ npm run dev
 ```
 
 Visit http://localhost:3000 — unauthenticated requests redirect to
-`/login`. Signing in with an `OWNER_EMAILS` address lands on `/dashboard`;
-any other address is redirected to `/forbidden`.
+`/login`. Signing in with an `OWNER_EMAILS` address lands on `/dashboard`,
+with `Generate`, `Knowledge`, `Topics`, and `Posts` in the nav; any other
+address is redirected to `/forbidden`.
 
 ## Production Setup
 
@@ -94,7 +128,7 @@ stack above).
 3. Authentication → Providers: enable Email, and GitHub/Google if using social login (GitHub OAuth App at https://github.com/settings/developers, Google OAuth Client in Google Cloud Console — callback URL `https://<project-ref>.supabase.co/auth/v1/callback` for both).
 4. Authentication → URL Configuration: Site URL and Redirect URLs matching the Vercel deployment URL (`https://<app>.vercel.app/auth/callback`).
 5. In Vercel: import the repo, set the same env vars as `.env` (pointing at the hosted project's values) plus `OWNER_EMAILS`, then deploy.
-6. Run `npx prisma migrate deploy` against the production `DIRECT_URL` once, to create `users`/`settings` on the hosted database.
+6. Run `npx prisma migrate deploy` against the production `DIRECT_URL` once, to apply every migration to the hosted database.
 
 **OAuth, the hosted Supabase project, and Vercel deployment are deferred** —
 tracked, not blocking (see `docs/06-Implementation-Plan.md` Phase 0
