@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.2.0...v1.3.0) (2026-07-22)
+
+
+### Features
+
+* **pipeline:** add orchestrator and Grill self-critique loop ([#14](https://github.com/lazybrownass/content-engine-sm/issues/14)) ([f1654eb](https://github.com/lazybrownass/content-engine-sm/commit/f1654ebe055ec2aa57548fd10687ef3ac4c6d722))
+* **pipeline:** add PipelineRun/AiRun schema with RLS ([#11](https://github.com/lazybrownass/content-engine-sm/issues/11)) ([ec50280](https://github.com/lazybrownass/content-engine-sm/commit/ec5028015a75cdbab46b6875a85a8457643f224d))
+* **pipeline:** extend model router with outline/draft/grill_review purposes ([#13](https://github.com/lazybrownass/content-engine-sm/issues/13)) ([c864b5c](https://github.com/lazybrownass/content-engine-sm/commit/c864b5c38344c8d09cb51043fae8538256d2226b))
+
 ## [1.2.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.1.0...v1.2.0) (2026-07-22)
 
 
