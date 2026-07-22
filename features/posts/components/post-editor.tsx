@@ -178,6 +178,7 @@ export function PostEditor({ post: initialPost }: { post: PostWithTopic }) {
 
           <Textarea
             ref={textareaRef}
+            aria-label="Post draft"
             rows={16}
             value={finalText}
             onChange={(e) => {
