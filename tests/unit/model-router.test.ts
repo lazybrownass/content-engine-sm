@@ -18,6 +18,7 @@ describe("getModel", () => {
     MODEL_PROVIDER: process.env.MODEL_PROVIDER,
     OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
     OLLAMA_MODEL: process.env.OLLAMA_MODEL,
+    INLINE_EDIT_MODEL: process.env.INLINE_EDIT_MODEL,
   };
 
   beforeEach(() => {
@@ -25,6 +26,7 @@ describe("getModel", () => {
     delete process.env.MODEL_PROVIDER;
     delete process.env.OLLAMA_BASE_URL;
     delete process.env.OLLAMA_MODEL;
+    delete process.env.INLINE_EDIT_MODEL;
   });
 
   afterEach(() => {
@@ -38,10 +40,25 @@ describe("getModel", () => {
   });
 
   it("defaults to the Hugging Face-backed model for all purposes when no new env vars are set", () => {
-    for (const purpose of ["brand-voice-generation", "outline", "draft", "grill_review"] as const) {
+    for (const purpose of [
+      "brand-voice-generation",
+      "outline",
+      "draft",
+      "grill_review",
+      "topic_generation",
+      "inline_edit",
+    ] as const) {
       const model = asLanguageModelV2(getModel(purpose));
       expect(model.provider).not.toBe("ollama.chat");
     }
+  });
+
+  it("routes inline_edit to a distinct, smaller default model than the other purposes", () => {
+    const inlineEdit = asLanguageModelV2(getModel("inline_edit"));
+    const draft = asLanguageModelV2(getModel("draft"));
+
+    expect(inlineEdit.modelId).toBe("Qwen/Qwen2.5-7B-Instruct");
+    expect(inlineEdit.modelId).not.toBe(draft.modelId);
   });
 
   it("E2E_MOCK_LLM takes precedence over MODEL_PROVIDER=ollama when both are set", () => {
