@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.4.0...v1.5.0) (2026-07-22)
+
+
+### Features
+
+* **ai:** add topic_generation and inline_edit model purposes ([#19](https://github.com/lazybrownass/content-engine-sm/issues/19)) ([50e5170](https://github.com/lazybrownass/content-engine-sm/commit/50e5170d653c24837bfe92b4e9e1c3ef4f7730b5))
+* **pipeline:** add topic-generation/inline-edit stages, thread postId/topicId through runPipeline ([#20](https://github.com/lazybrownass/content-engine-sm/issues/20)) ([335b9b2](https://github.com/lazybrownass/content-engine-sm/commit/335b9b2c0f74688a458b1acf0aeb155bfa951d73))
+* **posts:** add /posts list and studio editor with regenerate and inline AI actions ([#24](https://github.com/lazybrownass/content-engine-sm/issues/24)) ([b9093b2](https://github.com/lazybrownass/content-engine-sm/commit/b9093b299e7e8649ae28c779ce6b7f0c91a45602))
+* **posts:** add Post CRUD, create-from-topic, regenerate, and inline-edit actions ([#22](https://github.com/lazybrownass/content-engine-sm/issues/22)) ([1149c6f](https://github.com/lazybrownass/content-engine-sm/commit/1149c6fd778b340a38907a6a574931f4d694905b))
+* **schema:** add Topic and Post models, extend PipelineStage/PipelineRun ([#17](https://github.com/lazybrownass/content-engine-sm/issues/17)) ([c6d170d](https://github.com/lazybrownass/content-engine-sm/commit/c6d170d099c28a44d46aedf816baf65a1f1fa006))
+* **topics:** add /topics studio UI ([#23](https://github.com/lazybrownass/content-engine-sm/issues/23)) ([b3f6b3b](https://github.com/lazybrownass/content-engine-sm/commit/b3f6b3b30e13956afdd478e48510d5982bcdb1dd))
+* **topics:** add Topic CRUD and generation actions ([#21](https://github.com/lazybrownass/content-engine-sm/issues/21)) ([d10d309](https://github.com/lazybrownass/content-engine-sm/commit/d10d309b999c046bde80e9e36f912b0ad60ea9ad))
+
 ## [1.4.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.3.0...v1.4.0) (2026-07-22)
 
 
