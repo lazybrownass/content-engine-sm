@@ -13,7 +13,7 @@ export interface BuildGenerationPromptOutput {
   prompt: string;
 }
 
-function buildBrandVoiceBlock(brandVoice: BrandVoice | null): string {
+export function buildBrandVoiceBlock(brandVoice: BrandVoice | null): string {
   if (!brandVoice) {
     return "No brand voice was selected — write in a clear, professional, generic tone.";
   }
@@ -37,7 +37,7 @@ function buildBrandVoiceBlock(brandVoice: BrandVoice | null): string {
   return lines.join("\n");
 }
 
-function buildContextBlock(knowledgeChunks: KnowledgeSearchItemResult[]): string {
+export function buildContextBlock(knowledgeChunks: KnowledgeSearchItemResult[]): string {
   if (knowledgeChunks.length === 0) {
     return "No knowledge base matches were found; write from the request alone and do not invent specifics.";
   }
