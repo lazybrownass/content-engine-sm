@@ -475,6 +475,8 @@ model PostVersion {
 
 **Implementation note (Phase 2, partial; updated for Phase 3):** a scoped, standalone slice of this design has already been built — see `docs/06-Implementation-Plan.md`'s "Phase 2 (continued) — Pipeline Core Foundation" and "Phase 3 (partial)" sections. That implementation deviates from the shape below in these ways: `PipelineRun.ownerId` remains the required/primary column (not `postId`); it additionally has optional `postId`/`topicId` columns (added in Phase 3, partial) so a run can be traced to the `Topic`/`Post` it produced, without restructuring the table — no `purpose` field was added, since a run's purpose is already fully inferable from `currentStage` plus whether `postId`/`topicId` are set; `AiRun` has no `promptTemplateId` (no `PromptTemplate` table yet) and is scoped via a one-hop join through `PipelineRun.ownerId`, not the two-hop `ai_runs → pipeline_runs → posts` path below; `PipelineStage` currently has 7 values (`OUTLINE`, `DRAFT`, `GRILL_REVIEW`, `TOPIC_GENERATION`, `INLINE_REWRITE`, `INLINE_SHORTEN`, `INLINE_CHANGE_HOOK`) rather than the full 12 listed below — an additive migration when the remaining stages are built; `qualityScore`/`grillCycles` live on `PipelineRun` (and, since Phase 3 partial, are copied onto `Post` when a run completes) rather than solely on `Post`; `minQualityScore` is a hardcoded constant (`DEFAULT_MIN_QUALITY_SCORE = 85` in `features/pipeline/stages/quality-review.ts`), pending `Settings.minQualityScore`. The definitions below remain the target shape for full Phase 2.
 
+**Implementation note (Phase 5, partial):** a backend slice of the Analytics + Learning Loop has been built — see `docs/06-Implementation-Plan.md`'s "Phase 5 (partial)" section. Built as specified above: `AnalyticsSnapshot`, `StyleMemoryProfile`, and `StyleMemoryExample` (all three with RLS in the migration). `AnalyticsSnapshot` and `StyleMemoryExample` carry no direct `ownerId`; their RLS policies scope via a join (`→ posts.ownerId` / `→ style_memory_profiles.ownerId`), matching the `schedules`/`publishing_jobs` pattern. The profile is recomputed synchronously on every analytics write (plus an explicit `recomputeStyleMemory()` server action) rather than via a cron — `features/analytics/style-memory.ts` holds the pure aggregation (`MIN_SAMPLE_POSTS = 10` gates the loop while data is thin), and the winning style is injected into the generation and pipeline-draft prompt builders via `buildStyleMemoryBlock` (`features/generation/prompt.ts`). Deviations from the target: no `Post.publishedAt` column (the computation filters `status = PUBLISHED` ordered by `updatedAt`). Deferred entirely this phase: the `Feedback` model, the `post_performance_rollup` view and `recent_post_phrases` materialized view + refresh trigger (they belong with the `/analytics` dashboard), the manual analytics-entry UI + Recharts dashboards, the topic-scoring heuristic update, the Playwright analytics adapter, and the `/api/cron/refresh-style-memory` route. The definitions above remain the target shape for full Phase 5.
+
 ```prisma
 model PipelineRun {
   id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -679,6 +681,9 @@ model AnalyticsSnapshot {
 // ─────────────────────────────────────────────────────────────────────────
 // AUDIT
 // ─────────────────────────────────────────────────────────────────────────
+
+// (See the "Implementation note (Phase 5, partial)" below for which of the
+//  analytics/style-memory models above are already built.)
 
 model AuditLog {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

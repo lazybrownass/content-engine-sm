@@ -24,6 +24,7 @@ model User {
   topics              Topic[]
   posts               Post[]
   automationProviders AutomationProvider[]
+  styleMemoryProfile  StyleMemoryProfile?
 
   @@map("users")
 }
@@ -326,8 +327,10 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  pipelineRuns PipelineRun[]
-  schedule     Schedule?
+  pipelineRuns  PipelineRun[]
+  schedule      Schedule?
+  analytics     AnalyticsSnapshot[]
+  styleExamples StyleMemoryExample[]
 
   @@index([ownerId, status])
   @@index([ownerId, pillar])
@@ -429,4 +432,78 @@ model PublishingJob {
 
   @@index([status])
   @@map("publishing_jobs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ANALYTICS & STYLE MEMORY (Phase 5, partial — backend slice)
+//
+// A scoped slice of the aspirational Analytics + Learning Loop design in
+// docs/05-Backend-Schema.md: ships AnalyticsSnapshot + StyleMemoryProfile +
+// StyleMemoryExample so per-post metrics can be logged and the winning style
+// recomputed and injected into generation prompts. Deferred this phase: the
+// Feedback model, the post_performance_rollup view + recent_post_phrases
+// materialized view/trigger (belong with the /analytics dashboard), Post.
+// publishedAt (computation filters status = PUBLISHED ordered by updatedAt),
+// the topic-scoring heuristic, and the Playwright analytics adapter.
+// analytics_snapshots and style_memory_examples carry no direct ownerId;
+// ownership is proven via a join (-> posts.ownerId / style_memory_profiles.
+// ownerId), the same reasoning used for ai_runs and publishing_jobs above.
+// The recompute runs synchronously on analytics write (no cron infra).
+// ─────────────────────────────────────────────────────────────────────────
+
+model AnalyticsSnapshot {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId String @db.Uuid
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  capturedAt     DateTime @default(now())
+  source         String   @default("manual")
+  impressions    Int?
+  reactions      Int?
+  comments       Int?
+  reposts        Int?
+  clicks         Int?
+  engagementRate Float?
+
+  createdAt DateTime @default(now())
+
+  @@index([postId, capturedAt])
+  @@map("analytics_snapshots")
+}
+
+model StyleMemoryProfile {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @unique @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  avgSentenceLength   Float?
+  emojiUsageRate      Float?
+  hookPatterns        Json      @default("[]")
+  ctaPatterns         Json      @default("[]")
+  favoriteVocabulary  String[]  @default([])
+  avoidedPhrases      String[]  @default([])
+  repeatedPhraseIndex Json      @default("{}")
+  lastComputedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  examples StyleMemoryExample[]
+
+  @@map("style_memory_profiles")
+}
+
+model StyleMemoryExample {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  styleMemoryProfileId String             @db.Uuid
+  profile              StyleMemoryProfile @relation(fields: [styleMemoryProfileId], references: [id], onDelete: Cascade)
+  postId               String?            @db.Uuid
+  post                 Post?              @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  note String?
+
+  createdAt DateTime @default(now())
+
+  @@index([styleMemoryProfileId])
+  @@map("style_memory_examples")
 }

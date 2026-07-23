@@ -346,6 +346,8 @@ always listed. Explicitly out of sequence — recorded here per AGENTS.md §10.1
 **Risks:** too little data early on makes the learning loop noisy — mitigate by requiring a minimum sample size (documented threshold, e.g. 10 posts) before scoring weights deviate meaningfully from baseline.
 **Definition of Done:** the learning loop is demonstrably influencing new topic suggestions, not just displaying historical charts.
 
+**Implementation note (Phase 5, partial):** the backend slice of the learning loop is built. **Shipped:** the `AnalyticsSnapshot`, `StyleMemoryProfile`, and `StyleMemoryExample` schema + migration (with join-based RLS); a `features/analytics/` slice (`schema.ts`, `actions.ts` — `logAnalyticsSnapshot` + `recomputeStyleMemory` on the `ActionResult` pattern —, `queries.ts`, and the pure `style-memory.ts` aggregation gated by `MIN_SAMPLE_POSTS = 10`); synchronous recompute on every analytics write (no cron); injection of the winning style into the on-demand generation prompt (`/api/generate`) and the pipeline draft stage via `buildStyleMemoryBlock`; and unit tests for the aggregation (`tests/unit/style-memory.test.ts`) plus integration tests for ingestion, ownership isolation, and recompute (`tests/integration/analytics.test.ts`). **Still open:** the `/analytics` manual-entry UI, the `post_performance_rollup` view + Recharts dashboards, the topic-scoring weight adjustment (so the loop influences suggestions, not just generated text — the full Definition of Done above), the Playwright analytics adapter, and the `/api/cron/refresh-style-memory` route.
+
 #### Phase 6 — Hardening
 
 **Objectives:** security review, accessibility audit, performance pass, polish before calling v1 "done."
