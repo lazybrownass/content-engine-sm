@@ -160,6 +160,30 @@ describe("buildTopicGenerationPrompt", () => {
 
     expect(prompt).toContain("(none yet)");
   });
+
+  it("includes the pillar-performance and hook-pattern block when provided", () => {
+    const { system } = buildTopicGenerationPrompt({
+      knowledgeStatsSummary: "No knowledge yet.",
+      existingTitles: [],
+      knowledgeChunks: [],
+      pillarPerformance: [{ pillar: "CASE_STUDY", avgEngagementRate: 0.2, sampleCount: 5 }],
+      hookPatterns: [{ pattern: "Here's what nobody tells you", frequency: 3 }],
+    });
+
+    expect(system).toContain("Historical performance signal");
+    expect(system).toContain("CASE_STUDY=0.200");
+    expect(system).toContain("Here's what nobody tells you");
+  });
+
+  it("omits the historical performance block entirely when pillarPerformance is not provided", () => {
+    const { system } = buildTopicGenerationPrompt({
+      knowledgeStatsSummary: "No knowledge yet.",
+      existingTitles: [],
+      knowledgeChunks: [],
+    });
+
+    expect(system).not.toContain("Historical performance signal");
+  });
 });
 
 describe("buildInlineEditPrompt", () => {

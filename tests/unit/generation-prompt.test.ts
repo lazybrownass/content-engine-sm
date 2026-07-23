@@ -1,6 +1,6 @@
 import type { BrandVoice, KnowledgeItem } from "@prisma/client";
 import { describe, expect, it } from "vitest";
-import { buildGenerationPrompt } from "@/features/generation/prompt";
+import { buildGenerationPrompt, buildPillarPerformanceBlock } from "@/features/generation/prompt";
 import type { KnowledgeSearchItemResult } from "@/features/knowledge/queries";
 
 function makeBrandVoice(overrides: Partial<BrandVoice> = {}): BrandVoice {
@@ -81,5 +81,31 @@ describe("buildGenerationPrompt", () => {
     });
 
     expect(system).toContain("No brand voice was selected");
+  });
+});
+
+describe("buildPillarPerformanceBlock", () => {
+  it("returns an empty string for null/undefined", () => {
+    expect(buildPillarPerformanceBlock(null)).toBe("");
+    expect(buildPillarPerformanceBlock(undefined)).toBe("");
+  });
+
+  it("returns an empty string for an empty array", () => {
+    expect(buildPillarPerformanceBlock([])).toBe("");
+  });
+
+  it("ranks pillars by engagement and includes hook patterns when provided", () => {
+    const block = buildPillarPerformanceBlock(
+      [
+        { pillar: "EDUCATIONAL", avgEngagementRate: 0.05, sampleCount: 5 },
+        { pillar: "CASE_STUDY", avgEngagementRate: 0.3, sampleCount: 8 },
+      ],
+      [{ pattern: "A proven hook", frequency: 4 }],
+    );
+
+    expect(block).toContain("Historical performance signal");
+    // CASE_STUDY (higher engagement) should be listed before EDUCATIONAL.
+    expect(block.indexOf("CASE_STUDY")).toBeLessThan(block.indexOf("EDUCATIONAL"));
+    expect(block).toContain("A proven hook");
   });
 });

@@ -4,7 +4,12 @@ import { PrismaClient } from "@prisma/client";
 
 import { requireOwner } from "@/lib/auth/require-owner";
 import { logAnalyticsSnapshot, recomputeStyleMemory } from "@/features/analytics/actions";
-import { getStyleMemoryForPrompt } from "@/features/analytics/queries";
+import {
+  getAnalyticsOverview,
+  getPillarPerformance,
+  getRecentAnalyticsSnapshots,
+  getStyleMemoryForPrompt,
+} from "@/features/analytics/queries";
 import { MIN_SAMPLE_POSTS } from "@/features/analytics/style-memory";
 
 vi.mock("@/lib/auth/require-owner", () => ({
@@ -18,8 +23,10 @@ const prisma = new PrismaClient();
 const ownerA = randomUUID(); // logAnalyticsSnapshot tests
 const ownerB = randomUUID(); // cross-owner isolation
 const ownerC = randomUUID(); // recompute tests, isolated so the threshold is deterministic
+const ownerD = randomUUID(); // getPillarPerformance tests, isolated so the threshold is deterministic
+const ownerE = randomUUID(); // getAnalyticsOverview / getRecentAnalyticsSnapshots tests
 
-const OWNERS = [ownerA, ownerB, ownerC];
+const OWNERS = [ownerA, ownerB, ownerC, ownerD, ownerE];
 
 const WINNING_TEXT = "Shipping fast matters. Shipping teaches you plenty about scope.";
 
@@ -49,6 +56,17 @@ async function seedPublishedWithMetrics(ownerId: string, count: number, text = W
       data: { postId: post.id, source: "manual", engagementRate: (i + 1) / 100 },
     });
   }
+}
+
+// Seeds a single PUBLISHED post with a specific pillar and a single analytics
+// snapshot at a specific engagement rate — for tests that need precise control
+// over per-pillar aggregates rather than an auto-incrementing series.
+async function seedScoredPost(ownerId: string, pillar: string, engagementRate: number) {
+  const post = await makePost(ownerId, { status: "PUBLISHED", finalText: WINNING_TEXT, pillar });
+  await prisma.analyticsSnapshot.create({
+    data: { postId: post.id, source: "manual", engagementRate },
+  });
+  return post;
 }
 
 describe("logAnalyticsSnapshot", () => {
@@ -140,5 +158,76 @@ describe("recomputeStyleMemory", () => {
     const forPrompt = await getStyleMemoryForPrompt(ownerC);
     expect(forPrompt?.avgSentenceLength).not.toBeNull();
     expect(forPrompt?.exampleHooks[0]).toContain("Shipping fast matters");
+  });
+});
+
+describe("getPillarPerformance", () => {
+  it("returns no signal below the sample threshold", async () => {
+    for (let i = 0; i < MIN_SAMPLE_POSTS - 1; i++) {
+      await seedScoredPost(ownerD, "CASE_STUDY", 0.1);
+    }
+
+    const performance = await getPillarPerformance(ownerD);
+    expect(performance).toEqual({});
+  });
+
+  it("computes per-pillar averages once the threshold is met, and never leaks another owner's posts", async () => {
+    // Top up ownerD's CASE_STUDY posts and add a second pillar so the total
+    // crosses MIN_SAMPLE_POSTS across two distinct pillars.
+    await seedScoredPost(ownerD, "CASE_STUDY", 0.1); // now MIN_SAMPLE_POSTS CASE_STUDY posts @ 0.1
+    await seedScoredPost(ownerD, "EDUCATIONAL", 0.5);
+    await seedScoredPost(ownerD, "EDUCATIONAL", 0.3);
+
+    // A different owner's high-engagement posts must never affect ownerD's result.
+    for (let i = 0; i < MIN_SAMPLE_POSTS; i++) {
+      await seedScoredPost(ownerB, "CASE_STUDY", 0.99);
+    }
+
+    const performance = await getPillarPerformance(ownerD);
+
+    expect(performance.CASE_STUDY?.sampleCount).toBe(MIN_SAMPLE_POSTS);
+    expect(performance.CASE_STUDY?.avgEngagementRate).toBeCloseTo(0.1, 5);
+    expect(performance.EDUCATIONAL?.sampleCount).toBe(2);
+    expect(performance.EDUCATIONAL?.avgEngagementRate).toBeCloseTo(0.4, 5);
+  });
+});
+
+describe("getAnalyticsOverview / getRecentAnalyticsSnapshots", () => {
+  beforeEach(() => {
+    vi.mocked(requireOwner).mockResolvedValue(ownerE);
+  });
+
+  it("returns zeroed overview and an empty snapshot list with no data", async () => {
+    const overview = await getAnalyticsOverview();
+    expect(overview.totalSnapshots).toBe(0);
+    expect(overview.avgEngagementRate).toBeNull();
+    expect(overview.topPillar).toBeNull();
+    expect(overview.sampleGate.met).toBe(false);
+
+    const snapshots = await getRecentAnalyticsSnapshots(20);
+    expect(snapshots).toEqual([]);
+  });
+
+  it("aggregates totals/avg/top-pillar and lists recent snapshots newest-first, scoped to the owner", async () => {
+    for (let i = 0; i < MIN_SAMPLE_POSTS; i++) {
+      await seedScoredPost(ownerE, "CASE_STUDY", 0.1);
+    }
+    await seedScoredPost(ownerE, "EDUCATIONAL", 0.9);
+
+    // Another owner's snapshot must never appear in ownerE's overview/list.
+    await seedScoredPost(ownerB, "CASE_STUDY", 0.5);
+
+    const overview = await getAnalyticsOverview();
+    expect(overview.totalSnapshots).toBe(MIN_SAMPLE_POSTS + 1);
+    expect(overview.topPillar?.pillar).toBe("EDUCATIONAL");
+    expect(overview.sampleGate.met).toBe(true);
+
+    const snapshots = await getRecentAnalyticsSnapshots(5);
+    expect(snapshots).toHaveLength(5);
+    expect(snapshots.every((s) => s.post.pillar === "CASE_STUDY" || s.post.pillar === "EDUCATIONAL")).toBe(true);
+    // capturedAt is newest-first.
+    for (let i = 1; i < snapshots.length; i++) {
+      expect(snapshots[i - 1]!.capturedAt.getTime()).toBeGreaterThanOrEqual(snapshots[i]!.capturedAt.getTime());
+    }
   });
 });
