@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.6.0...v1.7.0) (2026-07-23)
+
+
+### Features
+
+* **analytics:** Phase 5 - Analytics Ingestion & Style Memory Loop ([#29](https://github.com/lazybrownass/content-engine-sm/issues/29)) ([99663d1](https://github.com/lazybrownass/content-engine-sm/commit/99663d10e69c1bfb347e44a810dc4b5ac234e433))
+
 ## [1.6.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.5.0...v1.6.0) (2026-07-22)
 
 
