@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.5.0...v1.6.0) (2026-07-22)
+
+
+### Features
+
+* Phase 4 — Scheduling & Webhook Automation ([#27](https://github.com/lazybrownass/content-engine-sm/issues/27)) ([a4a98cb](https://github.com/lazybrownass/content-engine-sm/commit/a4a98cb7034955b5d3927bf24f60259c8b4c7481))
+
 ## [1.5.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.4.0...v1.5.0) (2026-07-22)
 
 
