@@ -363,6 +363,22 @@ always listed. Explicitly out of sequence — recorded here per AGENTS.md §10.1
 **Acceptance criteria:** all NFRs in 01-PRD.md §10 are met and verifiable.
 **Definition of Done:** v1 ships.
 
+#### Phase 6 (continued) — Containerization & Deployment Infrastructure (out-of-order insertion)
+
+**Objectives:** containerize the app itself and document the production deployment paths, built ahead of the accessibility/Lighthouse/security-review/data-export/documentation work the Phase 6 table above actually specifies. Explicitly out of sequence — recorded here per AGENTS.md §10.1, mirroring the Phase 2.5/3/4/5 partial-continuation precedent. **The original Phase 6 checklist above (a11y pass, Lighthouse ≥95, RLS/secrets/CSP security review, data export action, README/`.env.example`/`RUNBOOK.md` documentation pass) remains entirely open — this insertion does not satisfy or replace any of it.**
+
+| Task | Deliverable |
+|---|---|
+| Health check verifying database connectivity, pgvector extension presence, and model-router configuration status | `lib/health/check-health.ts`, `app/api/health/route.ts` (a narrow, flagged exception to AGENTS.md Rule 2 — see the route's inline comment) |
+| Multi-stage production build (`deps`/`builder`/`runner`), non-root user, `output: "standalone"` | `Dockerfile`, `.dockerignore`, `next.config.ts` |
+| `docker/docker-compose.yml` extended with `migrate` (one-shot `prisma migrate deploy`), `app` (the containerized Next.js server), and `cron` (self-hosted stand-in for Vercel Cron) services | `docker/docker-compose.yml`, `docker/.env.example`, `scripts/cron-runner.mjs` |
+| Production deployment runbook covering Vercel + hosted Supabase, Docker/VPS self-hosting, and local Ollama routing, reconciling `docs/05-Backend-Schema.md` §9's migration-strategy claim against the actual (manual) process | `docs/production-deployment.md` |
+
+**Acceptance criteria:** `docker compose -f docker/docker-compose.yml --env-file docker/.env up -d --wait` brings up the full stack including the app, `migrate` completes and exits 0, `app` reports healthy, and `/api/health` returns 200 with the database and pgvector checks passing.
+**Testing:** `tests/unit/health-check.test.ts` (pure status-aggregation logic), `tests/integration/health.test.ts` (`checkDatabase`/`checkPgvector` against the real test Postgres).
+**Risks:** none new beyond what's already flagged inline in `Dockerfile`/`docker-compose.yml` comments (build-arg vs runtime-env split, the IPv6/`localhost` healthcheck resolution gotcha under Alpine/musl).
+**Definition of Done:** same bar as other phases (§14) — lint/typecheck/tests pass, docs (this section + `docs/production-deployment.md`) match the shipped implementation. **Still open:** the real Phase 6 checklist in full (a11y, Lighthouse, security review, data export, README/RUNBOOK documentation pass).
+
 ### 5. CI/CD
 
 ```yaml
