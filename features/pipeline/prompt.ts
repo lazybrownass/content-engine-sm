@@ -1,6 +1,11 @@
 import type { BrandVoice } from "@prisma/client";
 
-import { buildBrandVoiceBlock, buildContextBlock } from "@/features/generation/prompt";
+import {
+  buildBrandVoiceBlock,
+  buildContextBlock,
+  buildStyleMemoryBlock,
+  type StyleMemoryForPrompt,
+} from "@/features/generation/prompt";
 import type { KnowledgeSearchItemResult } from "@/features/knowledge/queries";
 
 export interface BuildOutlinePromptInput {
@@ -40,6 +45,7 @@ export interface BuildDraftPromptInput {
   brandVoice: BrandVoice | null;
   knowledgeChunks: KnowledgeSearchItemResult[];
   revisionFeedback?: string[];
+  styleMemory?: StyleMemoryForPrompt | null;
 }
 
 export function buildDraftPrompt({
@@ -48,13 +54,17 @@ export function buildDraftPrompt({
   brandVoice,
   knowledgeChunks,
   revisionFeedback,
+  styleMemory,
 }: BuildDraftPromptInput): BuildPromptOutput {
   const system = [
     "You are an expert content writer producing full post content for a single author, following the given outline.",
     "Return ONLY a JSON object with key content (the full drafted post text). No markdown fences, no commentary, no extra keys.",
     buildBrandVoiceBlock(brandVoice),
+    buildStyleMemoryBlock(styleMemory),
     "Do not state any statistic, client name, or outcome not present in the CONTEXT below.",
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const promptParts = [
     `CONTEXT:\n${buildContextBlock(knowledgeChunks)}`,

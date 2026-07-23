@@ -8,6 +8,7 @@ import { z, type ZodSafeParseResult } from "zod";
 import { AuthError, requireOwner } from "@/lib/auth/require-owner";
 import { prisma } from "@/lib/db/prisma";
 import { searchKnowledgeItems } from "@/features/knowledge/queries";
+import { getStyleMemoryForPrompt } from "@/features/analytics/queries";
 import { runPipeline } from "@/features/pipeline/orchestrator";
 import { runSingleStagePipeline } from "@/features/pipeline/run-single-stage";
 import { STAGE_BY_ACTION, runInlineEditStage } from "@/features/pipeline/stages/inline-edit";
@@ -64,9 +65,10 @@ export async function createPostFromTopic(topicId: string): Promise<ActionResult
       return { success: false, error: { code: "NOT_FOUND", message: "Topic not found" } };
     }
 
-    const [brandVoice, knowledgeChunks] = await Promise.all([
+    const [brandVoice, knowledgeChunks, styleMemory] = await Promise.all([
       prisma.brandVoice.findFirst({ where: { ownerId, isDefault: true } }),
       searchKnowledgeItems(topic.title, 10),
+      getStyleMemoryForPrompt(ownerId),
     ]);
 
     const post = await prisma.post.create({
@@ -81,6 +83,7 @@ export async function createPostFromTopic(topicId: string): Promise<ActionResult
       knowledgeChunks,
       postId: post.id,
       topicId: topic.id,
+      styleMemory,
     });
 
     const updated = await prisma.post.update({

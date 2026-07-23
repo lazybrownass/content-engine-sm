@@ -7,6 +7,7 @@ import { buildGenerationPrompt } from "@/features/generation/prompt";
 import { streamGeneration } from "@/features/generation/synthesize";
 import { searchKnowledgeItems } from "@/features/knowledge/queries";
 import { getBrandVoiceById, getDefaultBrandVoice } from "@/features/brand-voice/queries";
+import { getStyleMemoryForPrompt } from "@/features/analytics/queries";
 
 // AGENTS.md Rule 2 normally reserves Route Handlers for webhooks/cron/pipeline-tick,
 // not general API endpoints. This is a narrow, explicitly-flagged exception:
@@ -15,8 +16,9 @@ import { getBrandVoiceById, getDefaultBrandVoice } from "@/features/brand-voice/
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  let ownerId: string;
   try {
-    await requireOwner();
+    ownerId = await requireOwner();
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -31,15 +33,17 @@ export async function POST(req: Request) {
   }
   const { prompt, brandVoiceId } = parsed.data;
 
-  const [knowledgeChunks, brandVoice] = await Promise.all([
+  const [knowledgeChunks, brandVoice, styleMemory] = await Promise.all([
     searchKnowledgeItems(prompt, 5),
     brandVoiceId ? getBrandVoiceById(brandVoiceId) : getDefaultBrandVoice(),
+    getStyleMemoryForPrompt(ownerId),
   ]);
 
   const { system, prompt: userPrompt } = buildGenerationPrompt({
     userPrompt: prompt,
     knowledgeChunks,
     brandVoice,
+    styleMemory,
   });
 
   const result = streamGeneration({

@@ -5,6 +5,7 @@ import { buildDraftPrompt } from "@/features/pipeline/prompt";
 import { generateStageObject } from "@/features/pipeline/run-stage";
 import { draftOutputSchema } from "@/features/pipeline/schema";
 import type { KnowledgeSearchItemResult } from "@/features/knowledge/queries";
+import type { StyleMemoryForPrompt } from "@/features/generation/prompt";
 
 export interface RunDraftStageInput {
   topic: string;
@@ -12,6 +13,7 @@ export interface RunDraftStageInput {
   brandVoice: BrandVoice | null;
   knowledgeChunks: KnowledgeSearchItemResult[];
   revisionFeedback?: string[];
+  styleMemory?: StyleMemoryForPrompt | null;
 }
 
 export async function runDraftStage({
@@ -20,6 +22,7 @@ export async function runDraftStage({
   brandVoice,
   knowledgeChunks,
   revisionFeedback,
+  styleMemory,
 }: RunDraftStageInput) {
   const { system, prompt } = buildDraftPrompt({
     topic,
@@ -27,6 +30,7 @@ export async function runDraftStage({
     brandVoice,
     knowledgeChunks,
     revisionFeedback,
+    styleMemory,
   });
 
   return generateStageObject({

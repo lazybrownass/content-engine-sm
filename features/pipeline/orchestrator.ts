@@ -7,6 +7,7 @@ import { runDraftStage } from "@/features/pipeline/stages/draft";
 import { runQualityReviewStage } from "@/features/pipeline/stages/quality-review";
 import { PipelineStageError, type GenerateStageObjectOutput } from "@/features/pipeline/run-stage";
 import type { KnowledgeSearchItemResult } from "@/features/knowledge/queries";
+import type { StyleMemoryForPrompt } from "@/features/generation/prompt";
 
 export interface RunPipelineInput {
   ownerId: string;
@@ -16,6 +17,7 @@ export interface RunPipelineInput {
   minQualityScore?: number;
   postId?: string;
   topicId?: string;
+  styleMemory?: StyleMemoryForPrompt | null;
 }
 
 // The orchestrator stays Post-agnostic — it never imports/writes prisma.post itself.
@@ -103,6 +105,7 @@ export async function runPipeline({
   minQualityScore,
   postId,
   topicId,
+  styleMemory,
 }: RunPipelineInput): Promise<RunPipelineResult> {
   const pipelineRun = await prisma.pipelineRun.create({
     data: {
@@ -134,6 +137,7 @@ export async function runPipeline({
       outline: outlineResult.output.sections,
       brandVoice,
       knowledgeChunks,
+      styleMemory,
     });
   } catch (error) {
     return { pipelineRun: await failPipeline(pipelineRunId, PipelineStage.DRAFT, error), finalText: null };
@@ -186,6 +190,7 @@ export async function runPipeline({
       brandVoice,
       knowledgeChunks,
       revisionFeedback: grillResult.output.violations,
+      styleMemory,
     });
   } catch (error) {
     return { pipelineRun: await failPipeline(pipelineRunId, PipelineStage.DRAFT, error), finalText: null };
