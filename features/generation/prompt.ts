@@ -62,6 +62,34 @@ export function buildStyleMemoryBlock(styleMemory: StyleMemoryForPrompt | null |
   return ["Style memory (learned from the author's highest-performing posts):", ...lines].join("\n");
 }
 
+// One pillar's historical engagement, in the shape the prompt needs (a ranked
+// array) rather than the Record<Pillar,...> shape features/analytics/queries.ts
+// returns — callers convert once at the call site.
+export interface PillarPerformanceForPrompt {
+  pillar: string;
+  avgEngagementRate: number;
+  sampleCount: number;
+}
+
+export function buildPillarPerformanceBlock(
+  pillarPerformance: PillarPerformanceForPrompt[] | null | undefined,
+  hookPatterns?: { pattern: string; frequency: number }[],
+): string {
+  if (!pillarPerformance || pillarPerformance.length === 0) return "";
+
+  const ranked = [...pillarPerformance].sort((a, b) => b.avgEngagementRate - a.avgEngagementRate);
+  const lines = [
+    `Historical engagement by content pillar (n = published posts with logged metrics): ${ranked
+      .map((p) => `${p.pillar}=${p.avgEngagementRate.toFixed(3)} (n=${p.sampleCount})`)
+      .join(", ")}.`,
+    "Favor topics in pillars that have historically performed well; don't abandon underrepresented pillars entirely, but weight suggestions toward what has proven to work.",
+  ];
+  if (hookPatterns && hookPatterns.length > 0) {
+    lines.push(`Hook styles that have driven engagement before: ${hookPatterns.map((h) => h.pattern).join(" | ")}.`);
+  }
+  return ["Historical performance signal (learned from published posts' engagement):", ...lines].join("\n");
+}
+
 export function buildBrandVoiceBlock(brandVoice: BrandVoice | null): string {
   if (!brandVoice) {
     return "No brand voice was selected — write in a clear, professional, generic tone.";

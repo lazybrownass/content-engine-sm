@@ -36,6 +36,9 @@ export default async function AppLayout({
           <Link href="/schedule" className="hover:underline">
             Schedule
           </Link>
+          <Link href="/analytics" className="hover:underline">
+            Analytics
+          </Link>
         </nav>
       </header>
       <main className="flex-1 p-6">{children}</main>

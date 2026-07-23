@@ -9,6 +9,8 @@ import { AuthError, requireOwner } from "@/lib/auth/require-owner";
 import { prisma } from "@/lib/db/prisma";
 import { getKnowledgeItems, getKnowledgeStats } from "@/features/knowledge/queries";
 import type { KnowledgeSearchItemResult } from "@/features/knowledge/queries";
+import { getPillarPerformance, getStyleMemoryForPrompt } from "@/features/analytics/queries";
+import { applyPillarScoreBoost } from "@/features/analytics/pillar-scoring";
 import { runSingleStagePipeline } from "@/features/pipeline/run-single-stage";
 import { runTopicGenerationStage } from "@/features/pipeline/stages/topic-generation";
 
@@ -61,10 +63,12 @@ export async function generateTopicSuggestions(): Promise<ActionResult<Topic[]>>
   }
 
   try {
-    const [stats, existingTitles, sample] = await Promise.all([
+    const [stats, existingTitles, sample, pillarPerformance, styleMemory] = await Promise.all([
       getKnowledgeStats(),
       getRecentTopicTitles(),
       getKnowledgeItems({ archived: false, limit: 20 }),
+      getPillarPerformance(ownerId),
+      getStyleMemoryForPrompt(ownerId),
     ]);
 
     const knowledgeChunks: KnowledgeSearchItemResult[] = sample.items.map((item) => ({
@@ -81,12 +85,21 @@ export async function generateTopicSuggestions(): Promise<ActionResult<Topic[]>>
           knowledgeStatsSummary: buildKnowledgeStatsSummary(stats),
           existingTitles,
           knowledgeChunks,
+          pillarPerformance: Object.entries(pillarPerformance).map(([pillar, perf]) => ({
+            pillar,
+            ...perf,
+          })),
+          hookPatterns: styleMemory?.hookPatterns,
         }),
     });
 
+    // Boost/dampen raw LLM scores by historical pillar performance before anything
+    // downstream reads suggestion.score — a no-op below the sample threshold.
+    const boostedSuggestions = applyPillarScoreBoost(output.suggestions, pillarPerformance);
+
     // Defend against a hallucinated knowledge id: only keep ids that really exist
     // and belong to this owner.
-    const referencedIds = [...new Set(output.suggestions.flatMap((s) => s.sourceKnowledgeIds))];
+    const referencedIds = [...new Set(boostedSuggestions.flatMap((s) => s.sourceKnowledgeIds))];
     const validItems =
       referencedIds.length > 0
         ? await prisma.knowledgeItem.findMany({
@@ -97,7 +110,7 @@ export async function generateTopicSuggestions(): Promise<ActionResult<Topic[]>>
     const validIds = new Set(validItems.map((item) => item.id));
 
     const created = await prisma.topic.createManyAndReturn({
-      data: output.suggestions.map((suggestion) => ({
+      data: boostedSuggestions.map((suggestion) => ({
         ownerId,
         title: suggestion.title,
         rationale: suggestion.rationale,

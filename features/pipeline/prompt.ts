@@ -3,7 +3,9 @@ import type { BrandVoice } from "@prisma/client";
 import {
   buildBrandVoiceBlock,
   buildContextBlock,
+  buildPillarPerformanceBlock,
   buildStyleMemoryBlock,
+  type PillarPerformanceForPrompt,
   type StyleMemoryForPrompt,
 } from "@/features/generation/prompt";
 import type { KnowledgeSearchItemResult } from "@/features/knowledge/queries";
@@ -113,19 +115,26 @@ export interface BuildTopicGenerationPromptInput {
   knowledgeStatsSummary: string;
   existingTitles: string[];
   knowledgeChunks: KnowledgeSearchItemResult[];
+  pillarPerformance?: PillarPerformanceForPrompt[] | null;
+  hookPatterns?: { pattern: string; frequency: number }[];
 }
 
 export function buildTopicGenerationPrompt({
   knowledgeStatsSummary,
   existingTitles,
   knowledgeChunks,
+  pillarPerformance,
+  hookPatterns,
 }: BuildTopicGenerationPromptInput): BuildPromptOutput {
   const system = [
     "You are a content strategist suggesting LinkedIn post topics for a single author, grounded strictly in their knowledge base.",
     "Return ONLY a JSON object with key suggestions (an array of 5-10 objects), each with keys title, rationale, pillar, sourceKnowledgeIds (array of the CONTEXT item ids the suggestion draws on), and score (0-1, your confidence this is a strong topic). No markdown fences, no commentary, no extra keys.",
     "Favor topics that cover categories/pillars underrepresented in KNOWLEDGE COVERAGE below, and that are not near-duplicates of EXISTING TOPICS.",
+    buildPillarPerformanceBlock(pillarPerformance, hookPatterns),
     "Every sourceKnowledgeIds entry must be an id that literally appears in the CONTEXT below — never invent one.",
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const prompt = [
     `KNOWLEDGE COVERAGE:\n${knowledgeStatsSummary}`,
