@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.7.0...v1.8.0) (2026-07-23)
+
+
+### Features
+
+* **analytics:** Phase 5 - Analytics Dashboard & Topic Scoring Feedback Loop ([#31](https://github.com/lazybrownass/content-engine-sm/issues/31)) ([6246962](https://github.com/lazybrownass/content-engine-sm/commit/6246962e2d082a076fc87d60493fb5bc523b72a2))
+
 ## [1.7.0](https://github.com/lazybrownass/content-engine-sm/compare/v1.6.0...v1.7.0) (2026-07-23)
 
 
