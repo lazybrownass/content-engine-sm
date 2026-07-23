@@ -1,5 +1,12 @@
+import type { Metadata } from "next";
+
 import { getBrandVoices } from "@/features/brand-voice/queries";
 import { GenerationWorkspace } from "@/features/generation/components/generation-workspace";
+
+export const metadata: Metadata = {
+  title: "Generate — LinkedIn Content Engine",
+  description: "Generate a LinkedIn post, X thread, and hook from a topic.",
+};
 
 export default async function GeneratePage() {
   const brandVoices = await getBrandVoices();

@@ -161,6 +161,19 @@ the meantime.
   merge that PR — it creates the `vX.Y.Z` tag and GitHub Release
   automatically. No manual changelog or version editing.
 
+## Security & Accessibility
+
+- **Accessibility**: every primary route has an `@axe-core/playwright` scan in `tests/e2e/*.spec.ts`, run as part of `npm run test:e2e` (needs the local Docker stack up and `E2E_MOCK_LLM=1` set — see below). No separate command; a failing scan fails the normal e2e run.
+- **Performance/SEO**: `npx lighthouse http://localhost:3000/login --view` against a production build (`npm run build && npm run start`) — Lighthouse needs a real, unauthenticated page, so `/login` is the practical target locally. See `docs/06-Implementation-Plan.md`'s Phase 6 note for the last recorded scores and why SEO is intentionally not chased to 100 (the app's `robots.txt` deliberately blocks indexing — it's a private, single-owner tool).
+- **Security headers/CSP**: set in `next.config.ts`'s `headers()`, production builds only (`npm run build && npm run start`, not `npm run dev`). Verify with `curl -I http://localhost:3000/login`.
+- **Data export**: sign in and visit `/settings` → "Export all data (JSON)" for a full JSON archive of your knowledge base, posts, topics, brand voices, and pipeline/model-routing history — see `features/settings/actions.ts`.
+
+Running the full e2e suite locally (not just in CI) needs `E2E_MOCK_LLM=1` in the environment so `/generate` and topic generation use the canned mock model instead of a real Hugging Face call:
+
+```bash
+E2E_MOCK_LLM=1 npm run test:e2e
+```
+
 ## Scripts
 
 | Command | Purpose |

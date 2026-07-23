@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db/prisma";
 import { verifySignature } from "@/lib/publishing/signing";
+import { getClientIp, isRateLimited } from "@/lib/security/rate-limit";
 
 const callbackPayloadSchema = z.object({
   jobId: z.string().uuid(),
@@ -17,6 +18,10 @@ export async function handlePublishingCallback(
   request: NextRequest,
   providerType: "N8N" | "MAKE",
 ): Promise<NextResponse> {
+  if (isRateLimited(`webhook:${getClientIp(request)}`, 30, 60_000)) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   // Read raw bytes, not .json() — the signature is computed over the exact request body.
   const rawBody = await request.text();
   const signatureHeader = request.headers.get("x-signature");

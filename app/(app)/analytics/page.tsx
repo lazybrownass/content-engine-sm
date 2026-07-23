@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
+
 import { requireOwner } from "@/lib/auth/require-owner";
 import { getAnalyticsOverview, getRecentAnalyticsSnapshots, getStyleMemoryForPrompt } from "@/features/analytics/queries";
 import { AnalyticsOverviewCards } from "@/features/analytics/components/analytics-overview-cards";
 import { StyleMemoryCard } from "@/features/analytics/components/style-memory-card";
 import { PerformanceSnapshotTable } from "@/features/analytics/components/performance-snapshot-table";
+
+export const metadata: Metadata = {
+  title: "Analytics — LinkedIn Content Engine",
+  description: "Post performance, style memory, and recent snapshots.",
+};
 
 export default async function AnalyticsPage() {
   const ownerId = await requireOwner();

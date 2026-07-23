@@ -108,13 +108,30 @@ export function GenerationWorkspace({ brandVoices }: { brandVoices: BrandVoice[]
       {object ? (
         <div className="flex flex-col gap-3">
           <div className="flex gap-1.5" role="tablist">
-            {TABS.map(({ id, label }) => (
+            {TABS.map(({ id, label }, index) => (
               <button
                 key={id}
                 type="button"
                 role="tab"
                 aria-selected={tab === id}
+                tabIndex={tab === id ? 0 : -1}
                 onClick={() => setTab(id)}
+                onKeyDown={(e) => {
+                  // WAI-ARIA APG tabs pattern: arrow keys move focus + selection,
+                  // Home/End jump to the first/last tab.
+                  let nextIndex: number | null = null;
+                  if (e.key === "ArrowRight") nextIndex = (index + 1) % TABS.length;
+                  else if (e.key === "ArrowLeft") nextIndex = (index - 1 + TABS.length) % TABS.length;
+                  else if (e.key === "Home") nextIndex = 0;
+                  else if (e.key === "End") nextIndex = TABS.length - 1;
+                  if (nextIndex === null) return;
+                  e.preventDefault();
+                  const nextTab = TABS[nextIndex];
+                  if (!nextTab) return;
+                  setTab(nextTab.id);
+                  const nextButton = e.currentTarget.parentElement?.children[nextIndex];
+                  if (nextButton instanceof HTMLElement) nextButton.focus();
+                }}
                 className={cn(
                   "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                   tab === id

@@ -44,6 +44,7 @@ export const config = {
   matcher: [
     // api/* routes (webhook receivers, cron triggers) authenticate themselves — HMAC
     // signatures, CRON_SECRET — and must never be gated by the owner session check.
-    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // robots.txt must be reachable by crawlers without a session, same as favicon.ico.
+    "/((?!api/|_next/static|_next/image|favicon.ico|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
