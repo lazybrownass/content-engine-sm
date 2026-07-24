@@ -4,6 +4,20 @@ name: linkedin-content-engine
 # hand-maintained here instead of via the supabase CLI. Bring up with:
 #   docker compose --env-file docker/.env -f docker/docker-compose.yml up -d
 # Root .env (DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL, etc.) needs no changes — same ports.
+#
+# `app`/`migrate`/`cron` below containerize the Next.js app itself on top of this
+# stack — see docs/production-deployment.md for the full build-arg vs runtime-env
+# split these rely on. NEXT_PUBLIC_* vars are build args (baked into the client
+# bundle at image-build time, must be the host-facing API_EXTERNAL_URL/ANON_KEY,
+# not an internal-network hostname the browser can't reach); everything else is a
+# runtime-only environment var.
+
+x-app-build: &app-build
+  context: ..
+  dockerfile: Dockerfile
+  args:
+    NEXT_PUBLIC_SUPABASE_URL: ${API_EXTERNAL_URL}
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
 
 services:
 
@@ -319,6 +333,70 @@ services:
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
     entrypoint: ["/bin/sh", "/home/kong/kong-entrypoint.sh"]
+
+  # One-shot: applies every Prisma migration, then exits. `app` waits for this
+  # to complete successfully before starting. Reuses the `builder` stage (has
+  # node_modules + the Prisma CLI) rather than the slimmed-down runner image.
+  migrate:
+    build:
+      <<: *app-build
+      target: builder
+    command: npx prisma migrate deploy
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # No pgbouncer in this self-hosted stack, so DATABASE_URL and DIRECT_URL
+      # are identical — unlike the hosted-Supabase/Vercel path, where they
+      # genuinely differ (pooled vs direct). See docs/production-deployment.md.
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+
+  app:
+    container_name: linkedin-app
+    build: *app-build
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN}
+      OWNER_EMAILS: ${OWNER_EMAILS}
+      CRON_SECRET: ${CRON_SECRET}
+      APP_BASE_URL: http://localhost:3000
+
+  # Self-hosted equivalent of vercel.json's Cron schedules (no Docker-native
+  # scheduler exists otherwise for the two cron routes). Same image as `app`,
+  # different command — see scripts/cron-runner.mjs.
+  cron:
+    container_name: linkedin-cron
+    build: *app-build
+    command: ["node", "scripts/cron-runner.mjs"]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    # The Dockerfile's HEALTHCHECK checks the Next.js server on port 3000, but
+    # this service overrides CMD to run cron-runner.mjs instead — nothing
+    # listens there, so the inherited healthcheck would always fail. Disabled;
+    # `docker logs linkedin-cron` is how you check this service is alive.
+    healthcheck:
+      disable: true
+    environment:
+      APP_BASE_URL: http://app:3000
+      CRON_SECRET: ${CRON_SECRET}
 
 volumes:
   db-data:

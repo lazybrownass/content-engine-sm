@@ -59,6 +59,8 @@ export function ProviderSetupForm({ providers }: { providers: AutomationProvider
       <button
         type="button"
         className="flex w-full items-center justify-between text-sm font-medium"
+        aria-expanded={expanded}
+        aria-controls="automation-providers-panel"
         onClick={() => setExpanded((prev) => !prev)}
       >
         <span>Automation providers</span>
@@ -66,7 +68,7 @@ export function ProviderSetupForm({ providers }: { providers: AutomationProvider
       </button>
 
       {expanded && (
-        <div className="mt-4 flex flex-col gap-4">
+        <div id="automation-providers-panel" className="mt-4 flex flex-col gap-4">
           {configuredProviders.length > 0 && (
             <div className="flex flex-col gap-2">
               {configuredProviders.map((provider) => (

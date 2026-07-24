@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 import { loginAsOwner } from "./helpers/auth";
 
@@ -29,5 +30,11 @@ test.describe("authenticated search", () => {
     await expect(heading).toBeVisible({ timeout: 30_000 });
     await expect(heading).toContainText(query);
     await expect(page.getByRole("link", { name: "Clear search" })).toBeVisible();
+  });
+
+  test("has no automatically detectable accessibility violations on /knowledge", async ({ page }) => {
+    await page.goto("/knowledge");
+    await expect(page.getByLabel("Search")).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 });

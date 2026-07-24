@@ -1,5 +1,12 @@
+import type { Metadata } from "next";
+
 import { getPosts } from "@/features/posts/queries";
 import { PostList } from "@/features/posts/components/post-list";
+
+export const metadata: Metadata = {
+  title: "Posts — LinkedIn Content Engine",
+  description: "Review, edit, and approve drafted posts.",
+};
 
 type SearchParams = Record<string, string | string[] | undefined>;
 

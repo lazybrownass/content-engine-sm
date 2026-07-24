@@ -1,6 +1,13 @@
+import type { Metadata } from "next";
+
 import { getTopics } from "@/features/topics/queries";
 import { GenerateTopicsButton } from "@/features/topics/components/generate-topics-button";
 import { TopicList } from "@/features/topics/components/topic-list";
+
+export const metadata: Metadata = {
+  title: "Topics — LinkedIn Content Engine",
+  description: "Review and accept AI-suggested topics.",
+};
 
 type SearchParams = Record<string, string | string[] | undefined>;
 

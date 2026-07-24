@@ -1,8 +1,14 @@
+import type { Metadata } from "next";
 import { KnowledgeCategory, Pillar, type KnowledgeItem } from "@prisma/client";
 
 import { formatEnumLabel } from "@/lib/utils";
 import { getKnowledgeItems, searchKnowledgeItems } from "@/features/knowledge/queries";
 import { KnowledgeList } from "@/features/knowledge/components/knowledge-list";
+
+export const metadata: Metadata = {
+  title: "Knowledge — LinkedIn Content Engine",
+  description: "Search and manage your knowledge base.",
+};
 
 type SearchParams = Record<string, string | string[] | undefined>;
 

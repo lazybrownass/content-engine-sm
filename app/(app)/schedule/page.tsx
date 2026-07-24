@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import {
@@ -20,6 +21,11 @@ import {
   getUnconfirmedJobs,
   type ScheduleWithPost,
 } from "@/features/publishing/queries";
+
+export const metadata: Metadata = {
+  title: "Schedule — LinkedIn Content Engine",
+  description: "Calendar view of scheduled and published posts.",
+};
 
 type SearchParams = Record<string, string | string[] | undefined>;
 

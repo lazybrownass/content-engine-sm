@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.github
+docker/volumes/db
+docker/.env
+.env
+.env.*
+!.env.example
+tests
+playwright-report
+test-results
+*.md
+.vscode
+.claude

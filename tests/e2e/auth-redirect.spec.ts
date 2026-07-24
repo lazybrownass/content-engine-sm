@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 // Full login -> dashboard -> logout requires a live Supabase Auth backend
 // (not available in CI's plain Postgres service). This covers the
@@ -18,5 +19,11 @@ test.describe("unauthenticated access", () => {
     const response = await page.goto("/login");
     expect(response?.status()).toBe(200);
     await expect(page).toHaveURL(/\/login$/);
+  });
+
+  test("has no automatically detectable accessibility violations on /login", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByLabel("Email")).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 });

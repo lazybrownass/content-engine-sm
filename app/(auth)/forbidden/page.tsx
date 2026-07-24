@@ -10,6 +10,7 @@ import { SignOutButton } from "./sign-out-button";
 export default function ForbiddenPage() {
   return (
     <div className="flex flex-1 items-center justify-center p-4">
+      <h1 className="sr-only">Access restricted</h1>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Access restricted</CardTitle>
